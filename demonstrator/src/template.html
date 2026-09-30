@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AuthFlowMap: identity, delegation and agent authentication, one request at a time</title>
+<script>
+  (() => {
+    const param = new URLSearchParams(window.location.search).get("theme");
+    const stored = (() => { try { return localStorage.getItem("authflow-theme"); } catch { return null; } })();
+    const theme =
+      param || stored || "dark";
+    document.documentElement.setAttribute("data-theme", theme);
+  })();
+</script>
+<style>
+/*__CSS__*/
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <button type="button" class="icon-btn" id="navBtn" title="Show or hide the side menu, key N" aria-label="Toggle navigation">☰</button>
+    <div class="brand-mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="22" height="22"><path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5l-8-3Z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m8.5 12 2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+    </div>
+    <div>
+      <div class="brand-title"><span class="tag">&lt;</span>AuthFlowMap<span class="tag">/&gt;</span></div>
+      <div class="brand-sub" id="brandSub">Identity, delegation and agent sign-in, one request at a time</div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <div class="mode-switch" role="radiogroup" aria-label="Mode">
+      <button type="button" role="radio" data-mode="sim" aria-checked="true" class="on">Simulated</button>
+      <button type="button" role="radio" data-mode="live" aria-checked="false" id="liveBtn">Live</button>
+    </div>
+    <span class="live-status" id="liveStatus" title="Live mode status"><span class="dot"></span><span class="txt">Checking…</span></span>
+    <button type="button" class="icon-btn" id="themeBtn" title="Toggle light/dark theme" aria-label="Toggle theme">◐</button>
+    <button type="button" class="icon-btn" id="helpBtn" title="Keyboard shortcuts" aria-label="Help">?</button>
+  </div>
+</header>
+<div class="shell">
+  <nav class="sidenav" id="nav" aria-label="Demonstrator sections"></nav>
+  <main id="main" tabindex="-1"></main>
+</div>
+<div class="modal" id="helpModal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+    <h2 id="helpTitle">Presenting with this</h2>
+    <ol>
+      <li>Start on <b>Architecture</b> and click through the components.</li>
+      <li>Open a flow tab. The <b>briefing</b> covers the actors, the setup and the anti-pattern <i>before</i> anything moves.</li>
+      <li>Press <b>Start</b>. Each hop lights up and the packet moves between components. The inspector has the request, the response, the tokens and the checks.</li>
+      <li>Flip to <b>Live</b> to run the same flow against a real Entra test tenant. That needs the local server.</li>
+    </ol>
+    <table class="kbd-table">
+      <tr><td><kbd>Space</kbd></td><td>Start, pause or resume</td></tr>
+      <tr><td><kbd>→</kbd> <kbd>←</kbd></td><td>Step forward or back</td></tr>
+      <tr><td><kbd>R</kbd></td><td>Reset flow</td></tr>
+      <tr><td><kbd>V</kbd></td><td>Switch between the component and sequence views</td></tr>
+      <tr><td><kbd>N</kbd></td><td>Hide or show the side menu to give the diagram more room</td></tr>
+      <tr><td><kbd>1</kbd> to <kbd>5</kbd></td><td>Inspector tabs</td></tr>
+    </table>
+    <div class="modal-actions"><button type="button" class="btn" id="helpClose">Close</button></div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+/*__JS__*/
+</script>
+</body>
+</html>

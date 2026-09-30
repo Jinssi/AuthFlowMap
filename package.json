@@ -1,0 +1,10 @@
+{
+  "name": "authflowmap",
+  "private": true,
+  "description": "Interactive demonstrator for OAuth, OBO, Entra Agent ID and MCP authentication flows",
+  "scripts": {
+    "build": "node demonstrator/build.mjs",
+    "start": "npm --prefix server start",
+    "test": "npm --prefix server test"
+  }
+}

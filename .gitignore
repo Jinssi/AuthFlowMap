@@ -1,0 +1,6 @@
+node_modules/
+.env
+*.pem
+*.pfx
+*.key
+provisioning/out/
