@@ -543,6 +543,7 @@ const ID = {
   tid: 'b5c1e7a2-4f0d-4a53-9c8e-2d7f1a6e9b40',
   user: { name: 'Alex Johnson', upn: 'alex@contoso.com', oid: '3f2a9c71-5e8b-4d0a-a1c6-7b9e2f4d8c10' },
   spa: { name: 'Contoso Portal (SPA)', appId: '6e1c2b7a-3d4f-4a5b-9c8d-1e2f3a4b5c6d' },
+  webapp: { name: 'Contoso Portal (web app)', appId: 'f3a1b2c4-5d6e-4f70-8a9b-0c1d2e3f4a5b' },
   api: { name: 'Orders API', appId: '9a8b7c6d-5e4f-4321-8a9b-0c1d2e3f4a5b', spOid: 'c4d3e2f1-0a9b-4c8d-9e7f-6a5b4c3d2e1f' },
   daemon: { name: 'Nightly Sync Job', appId: '2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e', spOid: 'd1e2f3a4-b5c6-4d7e-8f9a-0b1c2d3e4f5a' },
   mcp: { name: 'Contoso MCP Server', appId: '7c8d9e0f-1a2b-4c3d-8e4f-5a6b7c8d9e0f', spOid: 'e5f6a7b8-c9d0-4e1f-a2b3-c4d5e6f7a8b9', url: 'https://mcp.contoso.com/mcp' },
@@ -635,6 +636,11 @@ const ACTORS = {
     icon: '⚙️', name: ID.api.name, role: 'Middle-tier API · confidential client', zone: 'apps',
     desc: 'A web API that validates the tokens it receives, which makes it a resource server. When it needs another API it becomes a confidential client and uses OBO to call it as the same user.',
     facts: ['Validates the signature, iss, aud, exp and scp', 'Never forwards the incoming token downstream', 'Signs in to Entra with a certificate, a federated credential or a secret'],
+  },
+  webapp: {
+    icon: '🏛️', name: 'Web app (server)', role: 'Confidential client · has a credential', zone: 'apps',
+    desc: 'A server-side web app such as ASP.NET, Java or Node. It signs users in with the authorization code flow and proves its own identity to Entra with a certificate or a secret. The tokens stay in its server-side cache, and the browser only gets a session cookie.',
+    facts: ['Two identities in one flow: the app with its credential, the user with the code', 'appidacr 1 means a secret, 2 means a certificate', 'Tokens never reach the browser'],
   },
   daemon: {
     icon: '🗄️', name: ID.daemon.name, role: 'Daemon · confidential client', zone: 'apps',
@@ -742,13 +748,13 @@ const ZONES = [
 ];
 const ARCH_POS = {
   user: [120, 100], browser: [120, 215], pc: [120, 330], device: [120, 445], attacker: [120, 590],
-  api: [345, 110], daemon: [345, 250], azapp: [345, 390], workload: [345, 530],
+  api: [345, 100], webapp: [345, 210], daemon: [345, 320], azapp: [345, 430], workload: [345, 560],
   agent: [585, 110], llm: [585, 230], mcpclient: [585, 350], orchestrator: [585, 470], subagent: [585, 590],
   risk: [825, 100], entra: [825, 215], intune: [825, 330], idp: [825, 470], imds: [825, 590],
   graph: [1055, 110], mcpserver: [1055, 260], downstream: [1055, 410], arm: [1055, 560],
 };
 const ARCH_EDGES = [
-  ['user', 'browser'], ['user', 'device'], ['browser', 'api'], ['browser', 'entra'], ['device', 'entra'],
+  ['user', 'browser'], ['user', 'device'], ['browser', 'api'], ['browser', 'webapp'], ['webapp', 'entra'], ['webapp', 'graph'], ['browser', 'entra'], ['device', 'entra'],
   ['api', 'entra'], ['api', 'graph'], ['daemon', 'entra'], ['daemon', 'graph'], ['azapp', 'imds'], ['azapp', 'graph'],
   ['workload', 'idp'], ['workload', 'entra'], ['idp', 'entra'], ['imds', 'entra'],
   ['agent', 'entra'], ['agent', 'graph'], ['agent', 'llm'], ['browser', 'agent'],
@@ -950,6 +956,73 @@ FLOWS.push({
     { id: 'obo-call-res', from: 'api', to: 'browser', label: '200 orders', title: 'API responds to the SPA', det: 'protocol', desc: 'The API combines its own data with what it got from Graph.', res: { status: 200, statusText: 'OK', headers: HDR.json, json: { me: { displayName: ID.user.name }, orders: [{ id: 'PO-10442', amount: 1240.5, status: 'Approved' }] } } },
   ],
 });
+
+
+// ---- flows-webapp.js ----
+'use strict';
+/* =====================================================================
+   FLOW DEFINITION: confidential web app, authorization code + app credential
+   ===================================================================== */
+{
+  const WEB = 'https://portal.contoso.com';
+  const CB = `${WEB}/signin-oidc`;
+  const SCOPES = 'openid profile offline_access User.Read';
+  const flow = {
+    id: 'web-app', group: 'standard', icon: '🏛️', live: true,
+    title: 'Web app sign-in (confidential client)',
+    subtitle: 'A server-side web app proves its own identity with a certificate or secret, and the user\'s identity with the authorization code.',
+    actors: ['user', 'browser', 'webapp', 'entra', 'graph'],
+    layout: { user: [110, 80], browser: [110, 360], webapp: [480, 360], entra: [480, 80], graph: [860, 360] },
+    variants: [
+      { id: 'certificate', label: 'Certificate', desc: 'The app signs a short-lived client assertion with its private key. Use this, or a managed identity federated credential, in production.' },
+      { id: 'secret', label: 'Client secret', desc: 'The app sends a shared secret. Fine for a lab, risky anywhere else.' },
+    ],
+    brief: {
+      what: 'This is the classic web app: ASP.NET, Spring, Express or Django running on a server. Two identities meet in one flow. The <b>user</b> proves who they are to Entra and comes back with an authorization code. The <b>app</b> then redeems that code and proves who <i>it</i> is with a certificate or a secret, so a stolen code is useless to anyone else. The tokens stay in the server\'s token cache. The browser only ever holds a session cookie.',
+      prereqs: ['App registration with the <b>Web</b> platform and a redirect URI such as /signin-oidc', 'A credential on the app: a certificate or a federated credential in production, a secret in a lab', 'Delegated permissions such as User.Read', 'A server-side session store and token cache. MSAL and Microsoft.Identity.Web provide both'],
+      antiPattern: 'Sending the access token down to the browser "so the JavaScript can call the API too", or registering the redirect under the SPA platform to skip the credential. Either way the app loses the protection it has as a confidential client. Also avoid the old implicit or hybrid flow just to get an ID token.',
+      verify: 'Live mode runs this with a real app registration. The popup is the web app: the local server plays the web app back end, redeems the code with its own secret or certificate and keeps the tokens.',
+    },
+    tokens: (ctx) => {
+      const cert = ctx.variant !== 'secret';
+      return {
+        IDT: { label: 'ID token: who signed in, for the web app', ...TK.idToken(ctx.t, ID.webapp.appId, ctx.vars.nonce) },
+        AT: { label: 'Access token for Graph, held by the server', ...TK.graphUser(ctx.t, { appid: ID.webapp.appId, scp: 'openid profile User.Read email', appName: ID.webapp.name, appidacr: cert ? '2' : '1' }) },
+        CA: { label: 'client_assertion signed with the app certificate', header: { alg: 'RS256', typ: 'JWT', x5t: randStr(27) }, payload: { aud: TOKEN_EP, iss: ID.webapp.appId, sub: ID.webapp.appId, jti: ctx.vars.jti, nbf: ctx.t, iat: ctx.t, exp: ctx.t + 300 } },
+      };
+    },
+    steps: (ctx) => {
+      const cert = ctx.variant !== 'secret';
+      const cred = cert ? { client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer', client_assertion: '{{CA}}' } : { client_secret: 'secret' };
+      const authUrl = `${AUTHZ_EP}?client_id=${ID.webapp.appId}&response_type=code&redirect_uri=${encodeURIComponent(CB)}&response_mode=query&scope=${encodeURIComponent(SCOPES)}&state={{state}}&nonce={{nonce}}&code_challenge={{challenge}}&code_challenge_method=S256`;
+      return [
+        { id: 'wa-start', from: 'user', to: 'browser', label: `Opens ${WEB}`, title: 'User opens the web app', det: 'human', desc: 'Nobody is signed in yet.' },
+        { id: 'wa-req', from: 'browser', to: 'webapp', label: 'GET /', title: 'Browser asks the server for a page', det: 'protocol', desc: 'The server sees no session cookie, so it starts a sign-in.', req: { method: 'GET', url: `${WEB}/` } },
+        { id: 'wa-pkce', from: 'webapp', to: 'webapp', label: 'State, nonce and PKCE', title: 'Server prepares the sign-in', det: 'protocol', desc: 'The server makes <code>state</code>, <code>nonce</code> and a PKCE verifier, and keeps them in a short-lived, HttpOnly correlation cookie or its own session store. OAuth 2.1 recommends PKCE for confidential clients too.', kv: { state: '{{state}}', nonce: '{{nonce}}', code_challenge: '{{challenge}}', code_verifier: 'kept on the server' } },
+        { id: 'wa-redirect', from: 'webapp', to: 'browser', label: '302 to /authorize', title: 'Server redirects the browser to Entra', det: 'protocol', desc: 'The server never shows a login form of its own. It sends the browser to Entra.', res: { status: 302, statusText: 'Found', headers: { Location: authUrl, 'Set-Cookie': '.AspNetCore.Correlation=…[masked]; HttpOnly; Secure; SameSite=None' } } },
+        { id: 'wa-authz', from: 'browser', to: 'entra', label: 'GET /authorize', title: 'Browser goes to Entra', det: 'protocol', desc: 'Same authorize request as a SPA, but the redirect URI is registered under the Web platform. That tells Entra the code may only be redeemed by a client with a credential.', req: { method: 'GET', url: AUTHZ_EP, query: { client_id: ID.webapp.appId, response_type: 'code', redirect_uri: CB, response_mode: 'query', scope: SCOPES, state: '{{state}}', nonce: '{{nonce}}', code_challenge: '{{challenge}}', code_challenge_method: 'S256' } } },
+        { id: 'wa-signin', from: 'entra', to: 'user', label: 'Sign-in + MFA', title: 'User signs in at Entra', det: 'human', desc: 'The user deals with Entra only. The web app never sees the password or the MFA.' },
+        { id: 'wa-policy', from: 'entra', to: 'entra', label: 'CA + consent', title: 'Conditional Access and consent', det: 'policy', desc: 'Entra runs Conditional Access for this user and this app, and checks consent for the scopes.', checks: [{ name: 'Conditional Access policies satisfied', ok: true }, { name: 'Consent for openid profile User.Read', ok: true }, { name: 'Redirect URI registered on the Web platform', ok: true }] },
+        { id: 'wa-code', from: 'entra', to: 'browser', label: '302 ?code&state', title: 'Code comes back through the browser', det: 'protocol', desc: 'The code travels through the browser. On its own it\'s useless, because redeeming it needs the app\'s credential and the PKCE verifier. Many frameworks use <code>response_mode=form_post</code> so the code never lands in the address bar.', res: { status: 302, statusText: 'Found', headers: { Location: `${CB}?code={{code}}&state={{state}}` } } },
+        { id: 'wa-callback', from: 'browser', to: 'webapp', label: 'GET /signin-oidc?code', title: 'Browser delivers the code to the server', det: 'protocol', desc: '', req: { method: 'GET', url: `${CB}?code={{code}}&state={{state}}`, headers: { Cookie: '.AspNetCore.Correlation=…[masked]' } } },
+        { id: 'wa-state', from: 'webapp', to: 'webapp', label: 'Check state + cookie', title: 'Server matches the callback to its own request', det: 'protocol', desc: 'The state must match, and the correlation cookie proves this is the same browser that started the sign-in.', checks: [{ name: 'state matches a pending sign-in', ok: true }, { name: 'Correlation cookie matches this browser', ok: true }, { name: 'Not expired and not used before', ok: true }] },
+        { id: 'wa-token-req', from: 'webapp', to: 'entra', label: `POST /token (code + ${cert ? 'certificate' : 'secret'})`, title: 'Server redeems the code and proves who it is', det: 'protocol',
+          desc: cert ? 'This is where the app authenticates itself. It sends the code and the verifier <b>plus a client assertion signed with its private key</b>. The call goes server to server, so no browser ever sees it.' : 'This is where the app authenticates itself. It sends the code and the verifier <b>plus its client secret</b>, server to server.',
+          why: 'Two separate proofs arrive together. The code proves the user signed in. The credential proves the right app is asking. Steal one and you still don\'t have the other.',
+          req: { method: 'POST', url: TOKEN_EP, headers: HDR.form, form: { client_id: ID.webapp.appId, grant_type: 'authorization_code', code: '{{code}}', redirect_uri: CB, code_verifier: '{{verifier}}', scope: SCOPES, ...cred } } },
+        { id: 'wa-token-res', from: 'entra', to: 'webapp', label: '200 ID + access + refresh', title: 'Entra issues tokens to the server', det: 'policy', desc: 'Look at <code>appidacr</code> in the access token. It says how the app proved itself: 1 for a secret, 2 for a certificate. A SPA would show 0.',
+          res: { status: 200, statusText: 'OK', headers: HDR.json, json: { token_type: 'Bearer', scope: SCOPES, expires_in: 4799, access_token: '{{AT}}', refresh_token: '{{rt}}', id_token: '{{IDT}}' } },
+          checks: [{ name: cert ? 'Client assertion signature matches the uploaded certificate' : 'Client secret valid and not expired', ok: true }, { name: 'PKCE: SHA256(verifier) = challenge', ok: true }, { name: 'Code issued to this client_id and redirect_uri', ok: true }] },
+        { id: 'wa-idtoken', from: 'webapp', to: 'webapp', label: 'Validate ID token', title: 'Server validates the ID token', det: 'protocol', desc: 'The ID token tells the app who signed in. The app checks it before it trusts a single claim.', tok: ['IDT'], checks: [{ name: 'Signature (JWKS)', ok: true }, { name: 'iss = this tenant', ok: true }, { name: `aud = ${ID.webapp.appId}, this app`, ok: true }, { name: 'nonce matches the one the server sent', ok: true }, { name: 'exp in the future', ok: true }] },
+        { id: 'wa-session', from: 'webapp', to: 'browser', label: 'Set session cookie', title: 'Browser gets a session, not tokens', det: 'protocol', desc: 'The server stores the tokens in its token cache and hands the browser a session cookie. The refresh token never leaves the server.', res: { status: 302, statusText: 'Found', headers: { Location: '/', 'Set-Cookie': '.AspNetCore.Cookies=…[masked]; HttpOnly; Secure; SameSite=Lax' } } },
+        { id: 'wa-graph-req', from: 'webapp', to: 'graph', label: 'GET /me (Bearer AT)', title: 'Server calls Graph as the user', det: 'protocol', desc: 'The server takes the token from its cache. When it expires, the server refreshes it with its credential.', req: { method: 'GET', url: `${GRAPH}/v1.0/me`, headers: HDR.bearer('AT') } },
+        { id: 'wa-graph-res', from: 'graph', to: 'webapp', label: '200 profile', title: 'Graph returns the profile', det: 'protocol', desc: '', res: { status: 200, statusText: 'OK', json: { displayName: ID.user.name, userPrincipalName: ID.user.upn } } },
+        { id: 'wa-page', from: 'webapp', to: 'browser', label: '200 page', title: 'Server renders the page', det: 'protocol', desc: 'The browser gets HTML. It never saw a token.', res: { status: 200, statusText: 'OK', headers: { 'Content-Type': 'text/html' }, text: `<h1>Hello ${ID.user.name}</h1>` } },
+      ];
+    },
+  };
+  FLOWS.splice(FLOWS.findIndex((f) => f.id === 'auth-code-pkce') + 1, 0, flow);
+}
 
 
 // ---- flows-standard2.js ----
@@ -1747,6 +1820,7 @@ const REFERENCE = [
     cols: ['Grant or flow', 'Who is authenticated', 'Client type', 'Token represents', 'Use for', 'Avoid or watch for', 'Tab'],
     rows: [
       ['Authorization code + PKCE', 'The user, interactively, plus the app', 'Public or confidential', 'The user, with <code>scp</code>', 'Any app with a user. Web, SPA, mobile, desktop', 'The default. PKCE is mandatory for public clients', 'auth-code-pkce'],
+      ['Authorization code, confidential client', 'The user, interactively, plus the app with its credential', 'Confidential', 'The user, with <code>scp</code>', 'Server-side web apps and back ends for front ends', 'The app sends a certificate assertion or a secret with the code. Tokens stay on the server', 'web-app'],
       ['On-behalf-of, jwt-bearer grant', 'The middle-tier app plus the user token it received', 'Confidential', 'Same user, new audience', 'One API calling another', 'Only works on tokens issued to the calling API', 'obo'],
       ['Client credentials', 'The app alone', 'Confidential', 'The app, with <code>roles</code>', 'Daemons, jobs, service-to-service', 'Scope must be <code>/.default</code>. Use a certificate or federated credential', 'client-credentials'],
       ['Managed identity', 'The Azure resource', 'Azure manages the credential', 'The app, with <code>roles</code>', 'Anything hosted on Azure', 'No secrets at all. The first choice on Azure', 'managed-identity'],
@@ -1983,6 +2057,115 @@ const REF_ACCESS_B = [
 ];
 const consentIdx = REFERENCE.findIndex((s) => s.id === 'consent');
 REFERENCE.splice(consentIdx + 1, 0, ...REF_ACCESS_A, ...REF_ACCESS_B);
+
+
+// ---- doc-links.js ----
+'use strict';
+/* =====================================================================
+   DOCUMENTATION LINKS: per flow, and grouped for the Reference tab.
+   Public documentation only. Check them with: node demonstrator/check-links.mjs
+   ===================================================================== */
+const L = {
+  authCode: ['Authorization code flow', 'https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow'],
+  pkce: ['RFC 7636: PKCE', 'https://datatracker.ietf.org/doc/html/rfc7636'],
+  oauth21: ['OAuth 2.1 draft', 'https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1'],
+  spa: ['Single-page app scenario', 'https://learn.microsoft.com/en-us/entra/identity-platform/scenario-spa-app-configuration'],
+  clientTypes: ['Public and confidential client apps', 'https://learn.microsoft.com/en-us/entra/identity-platform/msal-client-applications'],
+  webApp: ['Web app that signs in users, tutorial', 'https://learn.microsoft.com/en-us/entra/identity-platform/tutorial-web-app-dotnet-prepare-app'],
+  webAppApi: ['Web app that calls web APIs', 'https://learn.microsoft.com/en-us/entra/identity-platform/scenario-web-app-call-api-app-configuration'],
+  certCred: ['Certificate credentials and client assertions', 'https://learn.microsoft.com/en-us/entra/identity-platform/certificate-credentials'],
+  obo: ['On-behalf-of flow', 'https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-on-behalf-of-flow'],
+  cc: ['Client credentials flow', 'https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-client-creds-grant-flow'],
+  deviceCode: ['Device code flow', 'https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-device-code'],
+  refresh: ['Refresh tokens', 'https://learn.microsoft.com/en-us/entra/identity-platform/refresh-tokens'],
+  cae: ['Continuous Access Evaluation', 'https://learn.microsoft.com/en-us/entra/identity/conditional-access/concept-continuous-access-evaluation'],
+  claimsChallenge: ['Claims challenges and client capabilities', 'https://learn.microsoft.com/en-us/entra/identity-platform/claims-challenge'],
+  mi: ['Managed identities overview', 'https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/overview'],
+  miToken: ['Get a token with a managed identity', 'https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/how-to-use-vm-token'],
+  wif: ['Workload identity federation', 'https://learn.microsoft.com/en-us/entra/workload-id/workload-identity-federation'],
+  wifTrust: ['Configure a federated credential for GitHub and others', 'https://learn.microsoft.com/en-us/entra/workload-id/workload-identity-federation-create-trust'],
+  atClaims: ['Access token claims reference', 'https://learn.microsoft.com/en-us/entra/identity-platform/access-token-claims-reference'],
+  idToken: ['ID tokens', 'https://learn.microsoft.com/en-us/entra/identity-platform/id-tokens'],
+  consent: ['Permissions and consent', 'https://learn.microsoft.com/en-us/entra/identity-platform/permissions-consent-overview'],
+  agentIds: ['Agent identities', 'https://learn.microsoft.com/en-us/entra/agent-id/agent-identities'],
+  blueprint: ['Agent identity blueprints', 'https://learn.microsoft.com/en-us/entra/agent-id/agent-blueprint'],
+  agentObo: ['Agent on-behalf-of flow', 'https://learn.microsoft.com/en-us/entra/agent-id/agent-on-behalf-of-oauth-flow'],
+  agentUser: ['Agent\'s user account protocol', 'https://learn.microsoft.com/en-us/entra/agent-id/agent-user-oauth-flow'],
+  agentClaims: ['Token claims for agent IDs', 'https://learn.microsoft.com/en-us/entra/agent-id/agent-token-claims'],
+  inherit: ['Inheritable permissions for blueprints', 'https://learn.microsoft.com/en-us/entra/agent-id/configure-inheritable-permissions-blueprints'],
+  mcpAuth: ['MCP authorization spec 2025-11-25', 'https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization'],
+  mcpSec: ['MCP security best practices', 'https://modelcontextprotocol.io/docs/2025-11-25/tutorials/security/security_best_practices'],
+  rfc9728: ['RFC 9728: Protected Resource Metadata', 'https://datatracker.ietf.org/doc/html/rfc9728'],
+  rfc8414: ['RFC 8414: Authorization Server Metadata', 'https://datatracker.ietf.org/doc/html/rfc8414'],
+  rfc8707: ['RFC 8707: Resource Indicators', 'https://datatracker.ietf.org/doc/html/rfc8707'],
+  rfc7591: ['RFC 7591: Dynamic Client Registration', 'https://datatracker.ietf.org/doc/html/rfc7591'],
+  rfc8693: ['RFC 8693: Token Exchange', 'https://datatracker.ietf.org/doc/html/rfc8693'],
+  ca: ['Conditional Access overview', 'https://learn.microsoft.com/en-us/entra/identity/conditional-access/overview'],
+  whatIf: ['Conditional Access What If tool', 'https://learn.microsoft.com/en-us/entra/identity/conditional-access/what-if-tool'],
+  whatIfApi: ['Graph What If evaluate API', 'https://learn.microsoft.com/en-us/graph/api/conditionalaccessroot-evaluate?view=graph-rest-1.0'],
+  authContextDev: ['Authentication context for developers', 'https://learn.microsoft.com/en-us/entra/identity-platform/developer-guide-conditional-access-authentication-context'],
+  authStrength: ['Authentication strengths', 'https://learn.microsoft.com/en-us/entra/identity/authentication/concept-authentication-strengths'],
+  authMethods: ['Authentication methods', 'https://learn.microsoft.com/en-us/entra/identity/authentication/overview-authentication'],
+  passkeys: ['Enable passkeys', 'https://learn.microsoft.com/en-us/entra/identity/authentication/how-to-authentication-passkeys-fido2'],
+  tokenProt: ['Token protection', 'https://learn.microsoft.com/en-us/entra/identity/conditional-access/concept-token-protection'],
+  authMethodsApi: ['Graph: list authentication methods', 'https://learn.microsoft.com/en-us/graph/api/authentication-list-methods?view=graph-rest-1.0'],
+  prt: ['Primary Refresh Token', 'https://learn.microsoft.com/en-us/entra/identity/devices/concept-primary-refresh-token'],
+  devices: ['Device identity', 'https://learn.microsoft.com/en-us/entra/identity/devices/overview'],
+  compliant: ['Policy: require a compliant device', 'https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-all-users-device-compliance'],
+  blockFlows: ['Policy: block authentication flows', 'https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-block-authentication-flows'],
+  idp: ['What is ID Protection', 'https://learn.microsoft.com/en-us/entra/id-protection/overview-identity-protection'],
+  risks: ['Risk detections', 'https://learn.microsoft.com/en-us/entra/id-protection/concept-identity-protection-risks'],
+  riskPolicies: ['Risk-based access policies', 'https://learn.microsoft.com/en-us/entra/id-protection/concept-identity-protection-policies'],
+  hybrid: ['Hybrid identity', 'https://learn.microsoft.com/en-us/entra/identity/hybrid/whatis-hybrid-identity'],
+  phs: ['Password hash synchronization', 'https://learn.microsoft.com/en-us/entra/identity/hybrid/connect/whatis-phs'],
+  b2b: ['B2B collaboration', 'https://learn.microsoft.com/en-us/entra/external-id/what-is-b2b'],
+  xtap: ['Cross-tenant access settings', 'https://learn.microsoft.com/en-us/entra/external-id/cross-tenant-access-overview'],
+  pim: ['Privileged Identity Management', 'https://learn.microsoft.com/en-us/entra/id-governance/privileged-identity-management/pim-configure'],
+  reviews: ['Access reviews', 'https://learn.microsoft.com/en-us/entra/id-governance/access-reviews-overview'],
+  breakGlass: ['Emergency access accounts', 'https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/security-emergency-access'],
+  webauthn: ['W3C WebAuthn', 'https://www.w3.org/TR/webauthn-3/'],
+};
+const DOC_LINKS = {
+  'auth-code-pkce': [L.authCode, L.spa, L.pkce, L.oauth21],
+  'web-app': [L.webApp, L.webAppApi, L.authCode, L.certCred, L.clientTypes],
+  obo: [L.obo, L.atClaims, L.consent],
+  'client-credentials': [L.cc, L.certCred],
+  'device-code': [L.deviceCode, L.blockFlows],
+  'refresh-cae': [L.refresh, L.cae, L.claimsChallenge],
+  'managed-identity': [L.mi, L.miToken],
+  wif: [L.wif, L.wifTrust],
+  'ca-sim': [L.ca, L.whatIf, L.whatIfApi],
+  'step-up': [L.authContextDev, L.claimsChallenge, L.authStrength],
+  aitm: [L.authMethods, L.passkeys, L.authStrength, L.tokenProt, L.authMethodsApi, L.webauthn],
+  'device-sso': [L.prt, L.devices, L.compliant],
+  'id-protection': [L.idp, L.risks, L.riskPolicies],
+  'agent-autonomous': [L.agentIds, L.blueprint, L.agentClaims],
+  'agent-obo': [L.agentObo, L.inherit, L.agentClaims],
+  'agent-user': [L.agentUser, L.agentClaims],
+  'mcp-auth': [L.mcpAuth, L.rfc9728, L.rfc8414, L.rfc8707, L.rfc7591],
+  'mcp-obo': [L.mcpAuth, L.mcpSec, L.obo],
+  'multi-agent': [L.agentObo, L.agentClaims, L.rfc8693],
+};
+function docLinksHtml(id) {
+  const list = DOC_LINKS[id];
+  if (!list || !list.length) return '';
+  return `<h3>Documentation</h3><ul class="tight doc-links">${list.map(([t, u]) => `<li><a href="${esc(u)}" target="_blank" rel="noopener">${esc(t)}</a></li>`).join('')}</ul>`;
+}
+const DOC_GROUPS = [
+  ['Sign-in and token flows', [L.authCode, L.webApp, L.webAppApi, L.spa, L.clientTypes, L.obo, L.cc, L.certCred, L.deviceCode, L.refresh, L.mi, L.miToken, L.wif, L.wifTrust]],
+  ['Tokens and permissions', [L.atClaims, L.idToken, L.consent, L.claimsChallenge]],
+  ['Conditional Access, MFA and devices', [L.ca, L.whatIf, L.whatIfApi, L.authContextDev, L.authStrength, L.authMethods, L.passkeys, L.tokenProt, L.cae, L.prt, L.devices, L.compliant, L.blockFlows]],
+  ['Risk and governance', [L.idp, L.risks, L.riskPolicies, L.pim, L.reviews, L.breakGlass]],
+  ['Hybrid and external identities', [L.hybrid, L.phs, L.b2b, L.xtap]],
+  ['Microsoft Entra Agent ID', [L.agentIds, L.blueprint, L.agentObo, L.agentUser, L.agentClaims, L.inherit]],
+  ['MCP and open standards', [L.mcpAuth, L.mcpSec, L.pkce, L.oauth21, L.rfc9728, L.rfc8414, L.rfc8707, L.rfc7591, L.rfc8693, L.webauthn]],
+];
+REFERENCE.unshift({
+  id: 'docs', title: 'Documentation links',
+  intro: 'The public documentation behind every tab. Links open in a new window.',
+  cols: ['Area', 'Documents'],
+  rows: DOC_GROUPS.map(([area, links]) => [area, links.map(([t, u]) => `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(t)}</a>`).join('<br>')]),
+});
 
 
 // ---- engine.js ----
@@ -2291,7 +2474,7 @@ function flowPageHtml(flow) {
     <summary>Briefing. Read this before you press Start</summary>
     <div class="brief-grid">
       <div><h3>What this shows</h3><div>${b.what}</div>
-        <h3>Components involved</h3><div class="actor-chips">${flow.actors.map((a) => `<span class="actor-chip" title="${esc(ACTORS[a].desc)}">${esc(ACTORS[a].name)}</span>`).join('')}</div></div>
+        <h3>Components involved</h3><div class="actor-chips">${flow.actors.map((a) => `<span class="actor-chip" title="${esc(ACTORS[a].desc)}">${esc(ACTORS[a].name)}</span>`).join('')}</div>${docLinksHtml(flow.id)}</div>
       <div><h3>What has to be set up</h3><ul class="tight">${b.prereqs.map((p) => `<li>${p}</li>`).join('')}</ul>${variants}</div>
       <div><h3>Anti-pattern to avoid</h3><div class="notice bad">${b.antiPattern}</div>
         ${b.verify ? `<h3>Note</h3><div class="notice">${b.verify}</div>` : ''}
@@ -2614,7 +2797,7 @@ function renderCaSim(main, flow) {
     <div class="flow-head"><div><h1>${esc(flow.title)}</h1><div class="muted">${esc(flow.subtitle)}</div>
       <div class="tags"><span class="pill accent">Access, MFA and devices</span><span class="pill live">● Runs live</span><span class="pill">${CAS_POLICIES.length} sample policies</span></div></div></div>
     <details class="briefing card card-pad"><summary>Briefing. Read this before you start</summary>
-      <div class="brief-grid"><div><h3>What this shows</h3><div>${b.what}</div></div>
+      <div class="brief-grid"><div><h3>What this shows</h3><div>${b.what}</div>${docLinksHtml(flow.id)}</div>
       <div><h3>What has to be set up</h3><ul class="tight">${b.prereqs.map((p) => `<li>${p}</li>`).join('')}</ul></div>
       <div><h3>Anti-pattern to avoid</h3><div class="notice bad">${b.antiPattern}</div><h3>Note</h3><div class="notice">${b.verify}</div></div></div></details>
     <div class="casim-grid">
@@ -2751,7 +2934,7 @@ const Live = {
     return !!f;
   },
   needsPopup(flowId) {
-    return ['auth-code-pkce', 'obo', 'agent-obo', 'mcp-auth', 'step-up', 'aitm', 'device-sso'].includes(flowId) || (flowId === 'mcp-obo' && !this.mcpSession);
+    return ['auth-code-pkce', 'obo', 'agent-obo', 'mcp-auth', 'step-up', 'aitm', 'device-sso', 'web-app'].includes(flowId) || (flowId === 'mcp-obo' && !this.mcpSession);
   },
   openPopup() {
     const w = window.open('about:blank', 'authflow-signin', 'width=520,height=700');
@@ -2801,6 +2984,7 @@ const Live = {
     const o = { ...opts, emit, runId, cursor: { n: 0, runId } };
     switch (flowId) {
       case 'client-credentials': case 'device-code': case 'agent-autonomous': case 'id-protection': return this.runServerFlow(flowId, o);
+      case 'web-app': return this.runWebApp(o);
       case 'step-up': return this.runStepUp(o);
       case 'aitm': return this.runMethods(o);
       case 'device-sso': return this.runDevice(o);
@@ -2952,6 +3136,23 @@ const Live = {
     await this.mcpPost(o, { reqStep: 'ma-list-req', resStep: 'ma-list-res', labelReq: 'tools/list', rpc: { jsonrpc: '2.0', id: 2, method: 'tools/list' }, token: tok, session });
     this.mcpSession = { token: tok, session };
   },
+  /* ---------- confidential web app: the local server plays the web app ---------- */
+  async runWebApp(o) {
+    if (!o.popup) throw new Error('The popup was blocked. Allow popups for this page and press Start again.');
+    o.emit({ stepId: 'wa-start', from: 'user', to: 'browser', label: 'Opens the web app', determinism: 'human' });
+    o.banner('<div class="notice info"><b>Your turn.</b> The popup is the web app. Sign in there. The flow picks up again by itself.</div>');
+    o.popup.location.href = `/webapp/login?runId=${encodeURIComponent(o.runId)}&variant=${encodeURIComponent(o.variant || 'certificate')}`;
+    let closedAt = 0;
+    for (;;) {
+      this.guard(o);
+      const j = await this.drain(o.emit, o.cursor);
+      if (j.error) { o.banner(''); throw new Error(j.error); }
+      if (j.done && o.cursor.n > 0) { o.banner(''); return; }
+      if (o.popup.closed) { closedAt = closedAt || Date.now(); if (Date.now() - closedAt > 4000) { o.banner(''); throw new Error('The web app window closed before sign-in finished.'); } }
+      await this.sleep(600);
+    }
+  },
+
   /* ---------- access, MFA and devices ---------- */
   waitForClick(o, html) {
     return new Promise((resolve, reject) => {
@@ -3068,7 +3269,7 @@ function renderNav() {
   for (const g of GROUPS) {
     html += `<div class="nav-group"><div class="nav-group-title">${g.title}</div>`;
     if (g.id === 'overview') html += item('#architecture', 'Architecture');
-    else if (g.id === 'ref') html += item('#reference', 'Reference tables');
+    else if (g.id === 'ref') html += item('#reference', 'Reference tables') + item('#reference/docs', 'Documentation links');
     else FLOWS.filter((f) => f.group === g.id).forEach((f) => { html += item(`#flow/${f.id}`, f.title, f.live ? `<span class="nav-badge" title="Can run live against Entra">LIVE</span>` : ''); });
     html += '</div>';
   }

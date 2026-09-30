@@ -9,6 +9,7 @@ const ID = {
   tid: 'b5c1e7a2-4f0d-4a53-9c8e-2d7f1a6e9b40',
   user: { name: 'Alex Johnson', upn: 'alex@contoso.com', oid: '3f2a9c71-5e8b-4d0a-a1c6-7b9e2f4d8c10' },
   spa: { name: 'Contoso Portal (SPA)', appId: '6e1c2b7a-3d4f-4a5b-9c8d-1e2f3a4b5c6d' },
+  webapp: { name: 'Contoso Portal (web app)', appId: 'f3a1b2c4-5d6e-4f70-8a9b-0c1d2e3f4a5b' },
   api: { name: 'Orders API', appId: '9a8b7c6d-5e4f-4321-8a9b-0c1d2e3f4a5b', spOid: 'c4d3e2f1-0a9b-4c8d-9e7f-6a5b4c3d2e1f' },
   daemon: { name: 'Nightly Sync Job', appId: '2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e', spOid: 'd1e2f3a4-b5c6-4d7e-8f9a-0b1c2d3e4f5a' },
   mcp: { name: 'Contoso MCP Server', appId: '7c8d9e0f-1a2b-4c3d-8e4f-5a6b7c8d9e0f', spOid: 'e5f6a7b8-c9d0-4e1f-a2b3-c4d5e6f7a8b9', url: 'https://mcp.contoso.com/mcp' },

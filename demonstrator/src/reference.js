@@ -10,6 +10,7 @@ const REFERENCE = [
     cols: ['Grant or flow', 'Who is authenticated', 'Client type', 'Token represents', 'Use for', 'Avoid or watch for', 'Tab'],
     rows: [
       ['Authorization code + PKCE', 'The user, interactively, plus the app', 'Public or confidential', 'The user, with <code>scp</code>', 'Any app with a user. Web, SPA, mobile, desktop', 'The default. PKCE is mandatory for public clients', 'auth-code-pkce'],
+      ['Authorization code, confidential client', 'The user, interactively, plus the app with its credential', 'Confidential', 'The user, with <code>scp</code>', 'Server-side web apps and back ends for front ends', 'The app sends a certificate assertion or a secret with the code. Tokens stay on the server', 'web-app'],
       ['On-behalf-of, jwt-bearer grant', 'The middle-tier app plus the user token it received', 'Confidential', 'Same user, new audience', 'One API calling another', 'Only works on tokens issued to the calling API', 'obo'],
       ['Client credentials', 'The app alone', 'Confidential', 'The app, with <code>roles</code>', 'Daemons, jobs, service-to-service', 'Scope must be <code>/.default</code>. Use a certificate or federated credential', 'client-credentials'],
       ['Managed identity', 'The Azure resource', 'Azure manages the credential', 'The app, with <code>roles</code>', 'Anything hosted on Azure', 'No secrets at all. The first choice on Azure', 'managed-identity'],

@@ -21,7 +21,7 @@ function flowPageHtml(flow) {
     <summary>Briefing. Read this before you press Start</summary>
     <div class="brief-grid">
       <div><h3>What this shows</h3><div>${b.what}</div>
-        <h3>Components involved</h3><div class="actor-chips">${flow.actors.map((a) => `<span class="actor-chip" title="${esc(ACTORS[a].desc)}">${esc(ACTORS[a].name)}</span>`).join('')}</div></div>
+        <h3>Components involved</h3><div class="actor-chips">${flow.actors.map((a) => `<span class="actor-chip" title="${esc(ACTORS[a].desc)}">${esc(ACTORS[a].name)}</span>`).join('')}</div>${docLinksHtml(flow.id)}</div>
       <div><h3>What has to be set up</h3><ul class="tight">${b.prereqs.map((p) => `<li>${p}</li>`).join('')}</ul>${variants}</div>
       <div><h3>Anti-pattern to avoid</h3><div class="notice bad">${b.antiPattern}</div>
         ${b.verify ? `<h3>Note</h3><div class="notice">${b.verify}</div>` : ''}

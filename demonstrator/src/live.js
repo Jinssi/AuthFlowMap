@@ -22,7 +22,7 @@ const Live = {
     return !!f;
   },
   needsPopup(flowId) {
-    return ['auth-code-pkce', 'obo', 'agent-obo', 'mcp-auth', 'step-up', 'aitm', 'device-sso'].includes(flowId) || (flowId === 'mcp-obo' && !this.mcpSession);
+    return ['auth-code-pkce', 'obo', 'agent-obo', 'mcp-auth', 'step-up', 'aitm', 'device-sso', 'web-app'].includes(flowId) || (flowId === 'mcp-obo' && !this.mcpSession);
   },
   openPopup() {
     const w = window.open('about:blank', 'authflow-signin', 'width=520,height=700');
@@ -72,6 +72,7 @@ const Live = {
     const o = { ...opts, emit, runId, cursor: { n: 0, runId } };
     switch (flowId) {
       case 'client-credentials': case 'device-code': case 'agent-autonomous': case 'id-protection': return this.runServerFlow(flowId, o);
+      case 'web-app': return this.runWebApp(o);
       case 'step-up': return this.runStepUp(o);
       case 'aitm': return this.runMethods(o);
       case 'device-sso': return this.runDevice(o);
@@ -223,6 +224,23 @@ const Live = {
     await this.mcpPost(o, { reqStep: 'ma-list-req', resStep: 'ma-list-res', labelReq: 'tools/list', rpc: { jsonrpc: '2.0', id: 2, method: 'tools/list' }, token: tok, session });
     this.mcpSession = { token: tok, session };
   },
+  /* ---------- confidential web app: the local server plays the web app ---------- */
+  async runWebApp(o) {
+    if (!o.popup) throw new Error('The popup was blocked. Allow popups for this page and press Start again.');
+    o.emit({ stepId: 'wa-start', from: 'user', to: 'browser', label: 'Opens the web app', determinism: 'human' });
+    o.banner('<div class="notice info"><b>Your turn.</b> The popup is the web app. Sign in there. The flow picks up again by itself.</div>');
+    o.popup.location.href = `/webapp/login?runId=${encodeURIComponent(o.runId)}&variant=${encodeURIComponent(o.variant || 'certificate')}`;
+    let closedAt = 0;
+    for (;;) {
+      this.guard(o);
+      const j = await this.drain(o.emit, o.cursor);
+      if (j.error) { o.banner(''); throw new Error(j.error); }
+      if (j.done && o.cursor.n > 0) { o.banner(''); return; }
+      if (o.popup.closed) { closedAt = closedAt || Date.now(); if (Date.now() - closedAt > 4000) { o.banner(''); throw new Error('The web app window closed before sign-in finished.'); } }
+      await this.sleep(600);
+    }
+  },
+
   /* ---------- access, MFA and devices ---------- */
   waitForClick(o, html) {
     return new Promise((resolve, reject) => {

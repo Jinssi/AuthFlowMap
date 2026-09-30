@@ -63,6 +63,10 @@ export function buildConfig(env = process.env) {
     daemonClientSecret: str(env, 'DAEMON_CLIENT_SECRET'),
     daemonCertPath: resolveFile(str(env, 'DAEMON_CERT_PATH')),
     daemonKeyPath: resolveFile(str(env, 'DAEMON_KEY_PATH')),
+    webAppClientId: id(env, 'WEBAPP_CLIENT_ID'),
+    webAppClientSecret: str(env, 'WEBAPP_CLIENT_SECRET'),
+    webAppCertPath: resolveFile(str(env, 'WEBAPP_CERT_PATH')),
+    webAppKeyPath: resolveFile(str(env, 'WEBAPP_KEY_PATH')),
     mcpClientId: id(env, 'MCP_CLIENT_ID'),
     mcpClientSecret: str(env, 'MCP_CLIENT_SECRET'),
     blueprintAppId: id(env, 'BLUEPRINT_APP_ID'),
@@ -78,10 +82,12 @@ export function buildConfig(env = process.env) {
 
   cfg.origin = `http://localhost:${port}`;
   cfg.redirectUri = `${cfg.origin}/auth-callback`;
+  cfg.webAppRedirectUri = `${cfg.origin}/webapp/callback`;
   cfg.mcpResource = `${cfg.origin}/mcp`;
   cfg.mcpResourceMetadata = `${cfg.origin}/.well-known/oauth-protected-resource/mcp`;
 
   const authority = `https://login.microsoftonline.com/${tenantId ?? 'not-configured'}`;
+  cfg.authorizeEndpoint = `${authority}/oauth2/v2.0/authorize`;
   cfg.tokenEndpoint = `${authority}/oauth2/v2.0/token`;
   cfg.deviceCodeEndpoint = `${authority}/oauth2/v2.0/devicecode`;
   cfg.jwksUri = `${authority}/discovery/v2.0/keys`;
@@ -101,6 +107,8 @@ export function buildConfig(env = process.env) {
   const daemonSecret = t && !!cfg.daemonClientId && !!cfg.daemonClientSecret;
   const daemonCert = t && !!cfg.daemonClientId && isFile(cfg.daemonCertPath) && isFile(cfg.daemonKeyPath);
   const daemon = daemonSecret || daemonCert;
+  const webAppSecret = t && !!cfg.webAppClientId && !!cfg.webAppClientSecret;
+  const webAppCert = t && !!cfg.webAppClientId && isFile(cfg.webAppCertPath) && isFile(cfg.webAppKeyPath);
   cfg.flows = {
     'auth-code-pkce': t && !!cfg.spaClientId,
     obo: t && !!cfg.spaClientId && !!cfg.apiClientId && !!cfg.apiClientSecret,
@@ -118,11 +126,15 @@ export function buildConfig(env = process.env) {
     aitm: t && !!cfg.spaClientId,
     'device-sso': t && !!cfg.spaClientId,
     'id-protection': daemon,
+    'web-app': {
+      secret: webAppSecret,
+      certificate: webAppCert,
+    },
   };
   cfg.daemonConfigured = daemon;
 
   // Values that must never appear in any trace event or response (safety net for the trace store).
-  cfg.secrets = [cfg.apiClientSecret, cfg.daemonClientSecret, cfg.mcpClientSecret, cfg.blueprintClientSecret]
+  cfg.secrets = [cfg.apiClientSecret, cfg.daemonClientSecret, cfg.mcpClientSecret, cfg.blueprintClientSecret, cfg.webAppClientSecret]
     .filter((s) => typeof s === 'string' && s.length >= 6);
 
   return cfg;
@@ -142,6 +154,7 @@ export function healthView(cfg) {
     flows: {
       ...f,
       'client-credentials': { ...f['client-credentials'] },
+      'web-app': { ...f['web-app'] },
     },
     ids: {
       apiClientId: cfg.apiClientId,
@@ -149,6 +162,7 @@ export function healthView(cfg) {
       daemonClientId: cfg.daemonClientId,
       blueprintAppId: cfg.blueprintAppId,
       agentIdentityAppId: cfg.agentIdentityAppId,
+      webAppClientId: cfg.webAppClientId,
     },
     stepUpAuthContext: cfg.stepUpAuthContext,
     whatIfSubjects: {

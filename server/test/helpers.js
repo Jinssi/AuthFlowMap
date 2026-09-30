@@ -49,3 +49,57 @@ export async function waitDone(trace, runId, timeoutMs = 5000) {
     await new Promise((r) => { setTimeout(r, 10); });
   }
 }
+
+// Minimal DER encoder for a self-signed RSA test certificate (Node has no X.509 builder).
+function der(tag, content) {
+  const n = content.length;
+  let len;
+  if (n < 0x80) len = Buffer.from([n]);
+  else {
+    const bytes = [];
+    for (let v = n; v > 0; v >>= 8) bytes.unshift(v & 0xff);
+    len = Buffer.from([0x80 | bytes.length, ...bytes]);
+  }
+  return Buffer.concat([Buffer.from([tag]), len, content]);
+}
+const seq = (...parts) => der(0x30, Buffer.concat(parts));
+function oid(dotted) {
+  const [a, b, ...rest] = dotted.split('.').map(Number);
+  const out = [40 * a + b];
+  for (const v of rest) {
+    const chunk = [v & 0x7f];
+    for (let x = v >> 7; x > 0; x >>= 7) chunk.unshift((x & 0x7f) | 0x80);
+    out.push(...chunk);
+  }
+  return der(0x06, Buffer.from(out));
+}
+function utcTime(d) {
+  const s = d.toISOString().replace(/[-:T]/g, '').slice(2, 14);
+  return der(0x17, Buffer.from(`${s}Z`));
+}
+
+/** Self-signed RSA certificate + PKCS#8 key as PEM strings (test only, generated per run). */
+export function selfSignedCert(commonName = 'authflow-test') {
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const algId = seq(oid('1.2.840.113549.1.1.11'), Buffer.from([0x05, 0x00]));
+  const name = seq(der(0x31, seq(oid('2.5.4.3'), der(0x0c, Buffer.from(commonName)))));
+  const now = Date.now();
+  const tbs = seq(
+    der(0xa0, der(0x02, Buffer.from([0x02]))),
+    der(0x02, Buffer.from([0x01, ...crypto.randomBytes(8)])),
+    algId,
+    name,
+    seq(utcTime(new Date(now - 3600e3)), utcTime(new Date(now + 24 * 3600e3))),
+    name,
+    publicKey.export({ type: 'spki', format: 'der' }),
+  );
+  const sig = crypto.sign('sha256', tbs, privateKey);
+  const cert = seq(tbs, algId, der(0x03, Buffer.concat([Buffer.from([0x00]), sig])));
+  const b64 = cert.toString('base64').match(/.{1,64}/g).join('\n');
+  return {
+    certPem: `-----BEGIN CERTIFICATE-----\n${b64}\n-----END CERTIFICATE-----\n`,
+    keyPem: privateKey.export({ type: 'pkcs8', format: 'pem' }),
+    publicKey,
+    certDer: cert,
+  };
+}

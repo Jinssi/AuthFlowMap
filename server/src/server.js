@@ -17,6 +17,7 @@ import { handleAgentObo } from './flows/agentObo.js';
 import { handleStepUpApprove } from './flows/stepUp.js';
 import { handleCaWhatIf } from './flows/caWhatIf.js';
 import { runIdProtection } from './flows/idProtection.js';
+import { mountWebApp } from './flows/webApp.js';
 import { mountMcp } from './mcp/server.js';
 
 const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
@@ -154,6 +155,9 @@ export function createApp(opts = {}) {
   app.post('/api/stepup/approve', handleStepUpApprove(ctx));
   app.post('/api/agent/obo', handleAgentObo(ctx));
   mountMcp(app, ctx);
+
+  // ---- confidential web app (server-side session) ----
+  app.locals.webApp = mountWebApp(app, ctx);
 
   // ---- fallbacks ----
   app.use((req, res) => res.status(404).json({ error: 'not_found' }));

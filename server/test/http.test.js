@@ -27,13 +27,14 @@ test('GET /api/health reports live:false and never includes secrets', async () =
   assert.equal(j.redirectUri, 'http://localhost:5100/auth-callback');
   assert.deepEqual(Object.keys(j.flows).sort(), [
     'agent-autonomous', 'agent-obo', 'aitm', 'auth-code-pkce', 'ca-sim', 'client-credentials', 'device-code', 'device-sso',
-    'id-protection', 'mcp-auth', 'mcp-obo', 'obo', 'step-up',
+    'id-protection', 'mcp-auth', 'mcp-obo', 'obo', 'step-up', 'web-app',
   ]);
   assert.deepEqual(j.flows['client-credentials'], { secret: false, certificate: false });
+  assert.deepEqual(j.flows['web-app'], { secret: false, certificate: false });
   assert.equal(j.scopes.graph, 'openid profile offline_access User.Read');
   assert.equal(j.stepUpAuthContext, 'c1');
   assert.deepEqual(j.whatIfSubjects, { user: false, workload: false, agent: false });
-  assert.deepEqual(Object.keys(j.ids).sort(), ['agentIdentityAppId', 'apiClientId', 'blueprintAppId', 'daemonClientId', 'mcpClientId']);
+  assert.deepEqual(Object.keys(j.ids).sort(), ['agentIdentityAppId', 'apiClientId', 'blueprintAppId', 'daemonClientId', 'mcpClientId', 'webAppClientId']);
   // Only the spec'd boolean flag flows['client-credentials'].secret may mention "secret".
   assert.ok(!/client_?secret|secret"\s*:\s*"/i.test(JSON.stringify(j)));
   assert.ok(!/key_?path|cert_?path/i.test(JSON.stringify(j)));

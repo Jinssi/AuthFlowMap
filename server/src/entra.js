@@ -1,6 +1,7 @@
 // Raw Entra ID / Microsoft Graph HTTP calls. Every request and response is recorded as a
 // masked trace event so it can be shown to an audience.
 import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
 import { maskForm, maskHeaders, maskJsonBody, truncateText, tokenEntry } from './mask.js';
 
 export const GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
@@ -90,7 +91,7 @@ export function createEntra({ cfg, trace, fetchImpl = globalThis.fetch, timeoutM
     return { response: { status: r.status, statusText: r.statusText, headers: r.headers, body }, tokens };
   }
 
-  function recordResponse(runId, { stepId, from, to, label, r, determinism = 'protocol', status, note, data }) {
+  function recordResponse(runId, { stepId, from, to, label, r, determinism = 'protocol', status, note, data, checks }) {
     const { response, tokens } = responseView(r);
     const st = status ?? (r.ok ? 'ok' : 'error');
     let n = note;
@@ -98,10 +99,14 @@ export function createEntra({ cfg, trace, fetchImpl = globalThis.fetch, timeoutM
       const e = errorInfo(r);
       n = `${e.error}: ${e.error_description}`;
     }
-    return trace.add(runId, { stepId, from, to, label, determinism, status: st, response, tokens, note: n, data });
+    return trace.add(runId, { stepId, from, to, label, determinism, status: st, response, tokens, note: n, data, checks });
   }
 
-  async function formExchange(url, runId, { stepPrefix, from, to, labelReq, labelRes, form, noteReq, noteRes, dataRes }) {
+  /**
+   * opts.checksRes(json, ok, errorInfo) optionally returns a checks list for the `-res` event
+   * (called on success and on failure).
+   */
+  async function formExchange(url, runId, { stepPrefix, from, to, labelReq, labelRes, form, noteReq, noteRes, dataRes, checksRes }) {
     recordFormRequest(runId, { stepId: `${stepPrefix}-req`, from, to, label: labelReq, url, form, note: noteReq });
     const r = await postForm(url, form);
     if (!r.ok || !r.json || typeof r.json !== 'object') {
@@ -109,6 +114,7 @@ export function createEntra({ cfg, trace, fetchImpl = globalThis.fetch, timeoutM
       recordResponse(runId, {
         stepId: `${stepPrefix}-res`, from: to, to: from, label: labelRes, r, status: 'error',
         note: `${e.error}: ${e.error_description}`,
+        checks: typeof checksRes === 'function' ? checksRes(r.json, false, e) : undefined,
       });
       throw new UpstreamError(r.status || 502, e.error, e.error_description);
     }
@@ -116,6 +122,7 @@ export function createEntra({ cfg, trace, fetchImpl = globalThis.fetch, timeoutM
       stepId: `${stepPrefix}-res`, from: to, to: from, label: labelRes, r,
       note: typeof noteRes === 'function' ? noteRes(r.json) : noteRes,
       data: typeof dataRes === 'function' ? dataRes(r.json) : dataRes,
+      checks: typeof checksRes === 'function' ? checksRes(r.json, true, null) : undefined,
     });
     return r.json;
   }
@@ -199,6 +206,17 @@ export function buildClientAssertion({ clientId, certPem, keyPem, audience, now 
   const signingInput = `${enc(header)}.${enc(payload)}`;
   const signature = crypto.sign('sha256', Buffer.from(signingInput), key).toString('base64url');
   return { assertion: `${signingInput}.${signature}`, x5t, subject: cert.subject, validTo: cert.validTo };
+}
+
+/**
+ * Read a PEM certificate and private key from disk and build a client assertion with them.
+ * Shared by the daemon (client credentials) and the confidential web app. Throws on read/parse errors.
+ */
+export async function loadClientAssertion({ clientId, certPath, keyPath, audience, now = Date.now() }) {
+  const [certPem, keyPem] = await Promise.all([
+    fs.readFile(certPath, 'utf8'), fs.readFile(keyPath, 'utf8'),
+  ]);
+  return buildClientAssertion({ clientId, certPem, keyPem, audience, now });
 }
 
 export { tokenEntry };

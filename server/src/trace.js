@@ -3,7 +3,7 @@ import { scrubDeep } from './mask.js';
 
 export const RUN_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
 export const ACTORS = new Set([
-  'user', 'browser', 'api', 'daemon', 'device', 'entra', 'graph', 'agent', 'mcpclient', 'mcpserver', 'llm',
+  'user', 'browser', 'api', 'daemon', 'device', 'entra', 'graph', 'agent', 'mcpclient', 'mcpserver', 'llm', 'webapp',
 ]);
 const DETERMINISM = new Set(['protocol', 'ai', 'human', 'policy']);
 const STATUS = new Set(['ok', 'error', 'pending']);

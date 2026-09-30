@@ -23,6 +23,11 @@ const ACTORS = {
     desc: 'A web API that validates the tokens it receives, which makes it a resource server. When it needs another API it becomes a confidential client and uses OBO to call it as the same user.',
     facts: ['Validates the signature, iss, aud, exp and scp', 'Never forwards the incoming token downstream', 'Signs in to Entra with a certificate, a federated credential or a secret'],
   },
+  webapp: {
+    icon: '🏛️', name: 'Web app (server)', role: 'Confidential client · has a credential', zone: 'apps',
+    desc: 'A server-side web app such as ASP.NET, Java or Node. It signs users in with the authorization code flow and proves its own identity to Entra with a certificate or a secret. The tokens stay in its server-side cache, and the browser only gets a session cookie.',
+    facts: ['Two identities in one flow: the app with its credential, the user with the code', 'appidacr 1 means a secret, 2 means a certificate', 'Tokens never reach the browser'],
+  },
   daemon: {
     icon: '🗄️', name: ID.daemon.name, role: 'Daemon · confidential client', zone: 'apps',
     desc: 'A background service that runs with nobody signed in. It gets app-only tokens through the client credentials grant, and everything it can do comes from its application permissions.',
@@ -129,13 +134,13 @@ const ZONES = [
 ];
 const ARCH_POS = {
   user: [120, 100], browser: [120, 215], pc: [120, 330], device: [120, 445], attacker: [120, 590],
-  api: [345, 110], daemon: [345, 250], azapp: [345, 390], workload: [345, 530],
+  api: [345, 100], webapp: [345, 210], daemon: [345, 320], azapp: [345, 430], workload: [345, 560],
   agent: [585, 110], llm: [585, 230], mcpclient: [585, 350], orchestrator: [585, 470], subagent: [585, 590],
   risk: [825, 100], entra: [825, 215], intune: [825, 330], idp: [825, 470], imds: [825, 590],
   graph: [1055, 110], mcpserver: [1055, 260], downstream: [1055, 410], arm: [1055, 560],
 };
 const ARCH_EDGES = [
-  ['user', 'browser'], ['user', 'device'], ['browser', 'api'], ['browser', 'entra'], ['device', 'entra'],
+  ['user', 'browser'], ['user', 'device'], ['browser', 'api'], ['browser', 'webapp'], ['webapp', 'entra'], ['webapp', 'graph'], ['browser', 'entra'], ['device', 'entra'],
   ['api', 'entra'], ['api', 'graph'], ['daemon', 'entra'], ['daemon', 'graph'], ['azapp', 'imds'], ['azapp', 'graph'],
   ['workload', 'idp'], ['workload', 'entra'], ['idp', 'entra'], ['imds', 'entra'],
   ['agent', 'entra'], ['agent', 'graph'], ['agent', 'llm'], ['browser', 'agent'],

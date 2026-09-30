@@ -24,7 +24,7 @@ function renderNav() {
   for (const g of GROUPS) {
     html += `<div class="nav-group"><div class="nav-group-title">${g.title}</div>`;
     if (g.id === 'overview') html += item('#architecture', 'Architecture');
-    else if (g.id === 'ref') html += item('#reference', 'Reference tables');
+    else if (g.id === 'ref') html += item('#reference', 'Reference tables') + item('#reference/docs', 'Documentation links');
     else FLOWS.filter((f) => f.group === g.id).forEach((f) => { html += item(`#flow/${f.id}`, f.title, f.live ? `<span class="nav-badge" title="Can run live against Entra">LIVE</span>` : ''); });
     html += '</div>';
   }

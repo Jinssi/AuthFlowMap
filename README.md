@@ -14,7 +14,7 @@ Open `demonstrator/index.html` in Edge or Chrome. It's a single file with no dep
 
 **The side menu** groups the tabs. Start with Architecture, then pick a flow. A LIVE badge means the tab can also run against a real tenant.
 
-**The briefing** at the top of each flow tab says what the flow is for, what has to be set up and the anti-pattern it prevents. Read it before pressing Start. It folds away once the flow runs.
+**The briefing** at the top of each flow tab says what the flow is for, what has to be set up and the anti-pattern it prevents, and links to the documentation behind it. Read it before pressing Start. It folds away once the flow runs.
 
 **The controls** play, pause and step through the flow. Components shows the hops on an architecture diagram. Sequence shows the same messages as a sequence diagram. Some tabs have variants, such as a managed versus an unknown device, that change the steps.
 
@@ -48,7 +48,7 @@ Open `demonstrator/index.html` in Edge or Chrome. It's a single file with no dep
 
 ![The Conditional Access simulator with an unknown home PC scenario](docs/screenshot-ca-simulator.png)
 
-**The Reference tab** has tables for grant types, delegation models, consent, authentication methods, device states, Conditional Access, hybrid identity, external identities, governance, agent identities, MCP, token claims, anti-patterns and common errors. The filter box searches all of them.
+**The Reference tab** has tables for grant types, delegation models, consent, authentication methods, device states, Conditional Access, hybrid identity, external identities, governance, agent identities, MCP, token claims, anti-patterns and common errors. The filter box searches all of them. The first table, also in the side menu as Documentation links, collects every public document the tabs are based on: Microsoft Learn, the MCP specification and the IETF RFCs.
 
 Keyboard: Space starts and pauses, the arrow keys step, R resets, V switches the view, N hides the side menu and ? shows help.
 
@@ -60,7 +60,7 @@ Keyboard: Space starts and pauses, the arrow keys step, R resets, V switches the
 
 **Live** runs the same tabs against an Entra test tenant you own. A local Node server does the confidential-client work: OBO, client credentials, device code, the Agent ID exchanges and a small MCP server. The browser does the auth code + PKCE sign-in in a popup and plays the MCP client. Every request is recorded as it happens and replayed at a speed you can talk over. Steps tagged REAL are real traffic. Steps tagged SIM are the language model steps, since the demo server has no model.
 
-Thirteen tabs run live. Refresh and CAE, managed identity, workload identity federation, the agent's user account and the multi-agent chain stay simulated. The access, MFA and devices tabs go live in their own way, because nobody wants a real phishing attack in a meeting.
+Fourteen tabs run live, including the confidential web app, where the local server plays the web app back end and redeems the code with its own secret or certificate. Refresh and CAE, managed identity, workload identity federation, the agent's user account and the multi-agent chain stay simulated. The access, MFA and devices tabs go live in their own way, because nobody wants a real phishing attack in a meeting.
 
 - **Conditional Access simulator.** The same switches go to Graph's What If API, and your tenant's real policies answer.
 - **Step-up MFA.** The API really returns a claims challenge, you really step up, and the retry succeeds with `acrs` in the token. Needs `-EnableStepUpPolicy` at provisioning.
@@ -105,7 +105,7 @@ The server rejects any Host header that isn't loopback, rejects cross-origin POS
 
 To rebrand the simulated tenant, change the names and IDs in the `ID` block of `demonstrator/src/config.js`. The colours sit at the top of `demonstrator/src/styles.css`. The page defaults to dark. Add `?theme=light` to the URL, or use the ◐ button, for the light version.
 
-After changing anything in `demonstrator/src`, rebuild the single file with `npm run build`. `npm test` runs the server tests.
+After changing anything in `demonstrator/src`, rebuild the single file with `npm run build`. `npm test` runs the server tests, and `node demonstrator/check-links.mjs` checks that every documentation link still works.
 
 ```
 demonstrator/

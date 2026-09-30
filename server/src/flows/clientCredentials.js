@@ -1,6 +1,5 @@
 // Client credentials (daemon, app-only) with a client secret or a certificate assertion.
-import fs from 'node:fs/promises';
-import { buildClientAssertion } from '../entra.js';
+import { loadClientAssertion } from '../entra.js';
 import { tokenEntry } from '../mask.js';
 
 export const GRAPH_DEFAULT = 'https://graph.microsoft.com/.default';
@@ -13,10 +12,9 @@ export async function runClientCredentials(ctx, runId, variant) {
   if (variant === 'certificate') {
     let built;
     try {
-      const [certPem, keyPem] = await Promise.all([
-        fs.readFile(cfg.daemonCertPath, 'utf8'), fs.readFile(cfg.daemonKeyPath, 'utf8'),
-      ]);
-      built = buildClientAssertion({ clientId: cfg.daemonClientId, certPem, keyPem, audience: cfg.tokenEndpoint, now: ctx.now() });
+      built = await loadClientAssertion({
+        clientId: cfg.daemonClientId, certPath: cfg.daemonCertPath, keyPath: cfg.daemonKeyPath, audience: cfg.tokenEndpoint, now: ctx.now(),
+      });
     } catch (e) {
       trace.add(runId, {
         stepId: 'cc-build-cred', from: 'daemon', to: 'daemon', label: 'Load credential', determinism: 'protocol',

@@ -3,10 +3,10 @@
 Sets up a Microsoft Entra test tenant for the AuthFlow demonstrator.
 
 .DESCRIPTION
-Creates or updates the demo app registrations, service principals, credentials and permission grants that
-the AuthFlow demonstrator needs. It also creates the Microsoft Entra Agent ID blueprint and one agent
-identity, unless you pass -SkipAgentId. When it's done it writes .env at the repo root. If a .env is already
-there, it copies it to .env.bak first.
+Creates or updates the demo SPA, WebApp, API, daemon and MCP app registrations, service principals,
+credentials and permission grants that the AuthFlow demonstrator needs. It also creates the Microsoft
+Entra Agent ID blueprint and one agent identity, unless you pass -SkipAgentId. When it's done it writes
+.env at the repo root. If a .env is already there, it copies it to .env.bak first.
 
 .EXAMPLE
 .\New-AuthFlowTenant.ps1 -TenantId 00000000-0000-0000-0000-000000000000
@@ -24,7 +24,7 @@ The tenant ID or tenant domain to provision.
 The display name prefix for demo Entra objects.
 
 .PARAMETER Port
-The local SPA port.
+The local demo port.
 
 .PARAMETER DemoUserUpn
 The user principal name for the demo user. The signed-in user is used when this is not set.
@@ -39,7 +39,7 @@ The authentication context ID for step-up. Use c1 through c99. The default is c1
 Skips Microsoft Entra Agent ID objects.
 
 .PARAMETER SkipCertificate
-Skips the daemon certificate and private key.
+Skips the daemon certificate, private key and WebApp certificate upload.
 
 .NOTES
 Use a test tenant. You need Application Administrator plus Agent Identity Administrator or Agent Identity
@@ -260,7 +260,7 @@ function Get-ApplicationByDisplayName {
     $escaped = ConvertTo-ODataStringLiteral -Value $DisplayName
     $uri = New-GraphUri -Path 'applications' -Query @{
         '$filter' = "displayName eq '$escaped'"
-        '$select' = 'id,appId,displayName,api,spa,requiredResourceAccess,passwordCredentials,keyCredentials,identifierUris,isFallbackPublicClient,signInAudience,optionalClaims'
+        '$select' = 'id,appId,displayName,api,web,spa,requiredResourceAccess,passwordCredentials,keyCredentials,identifierUris,isFallbackPublicClient,signInAudience,optionalClaims'
     }
     return Get-GraphCollection -Uri $uri | Select-Object -First 1
 }
@@ -269,7 +269,7 @@ function Get-ApplicationById {
     param([Parameter(Mandatory)][string] $ObjectId)
 
     $uri = New-GraphUri -Path "applications/$ObjectId" -Query @{
-        '$select' = 'id,appId,displayName,api,spa,requiredResourceAccess,passwordCredentials,keyCredentials,identifierUris,isFallbackPublicClient,signInAudience,optionalClaims'
+        '$select' = 'id,appId,displayName,api,web,spa,requiredResourceAccess,passwordCredentials,keyCredentials,identifierUris,isFallbackPublicClient,signInAudience,optionalClaims'
     }
     return Invoke-GraphRequestWithRetry -Method GET -Uri $uri -ErrorContext "reading application $ObjectId"
 }
@@ -507,11 +507,34 @@ function Set-DaemonCertificate {
         return @{
             CertRelativePath = 'provisioning/out/daemon-cert.pem'
             KeyRelativePath  = 'provisioning/out/daemon-key.pem'
+            KeyCredential    = $newCredential
         }
     }
     finally {
         $rsa.Dispose()
     }
+}
+
+function Add-ApplicationCertificate {
+    param(
+        [Parameter(Mandatory)] $Application,
+        [Parameter(Mandatory)][hashtable] $KeyCredential,
+        [Parameter(Mandatory)][string] $Description
+    )
+
+    $freshApp = Get-ApplicationById -ObjectId $Application.id
+    $thumbprint = [string] $KeyCredential.customKeyIdentifier
+    $existing = @($freshApp.keyCredentials) | Where-Object { $_.customKeyIdentifier -eq $thumbprint } | Select-Object -First 1
+    if ($null -ne $existing) {
+        Write-Success "Reusing certificate for $Description"
+        return
+    }
+
+    $keptCredentials = @($freshApp.keyCredentials) | Where-Object { $_.displayName -ne $SecretDisplayName }
+    Invoke-GraphRequestWithRetry -Method PATCH -Uri (New-GraphUri -Path "applications/$($Application.id)") -Body @{
+        keyCredentials = @($keptCredentials + $KeyCredential)
+    } -ErrorContext "uploading certificate to $Description" | Out-Null
+    Write-Success "Uploaded certificate for $Description"
 }
 
 function Ensure-AppRoleAssignment {
@@ -545,7 +568,8 @@ function Ensure-OAuth2Grant {
         [Parameter(Mandatory)][string] $ClientServicePrincipalId,
         [Parameter(Mandatory)][string] $ResourceServicePrincipalId,
         [Parameter(Mandatory)][string[]] $Scopes,
-        [Parameter(Mandatory)][string] $Description
+        [Parameter(Mandatory)][string] $Description,
+        [switch] $ExactScopes
     )
 
     $scopeText = Join-ScopeText -Scopes $Scopes
@@ -567,7 +591,12 @@ function Ensure-OAuth2Grant {
     }
 
     $existingScopes = @($grant.scope -split '\s+' | Where-Object { $_ })
-    $mergedScopes = @($Scopes + @($existingScopes | Where-Object { $Scopes -notcontains $_ }))
+    $mergedScopes = if ($ExactScopes) {
+        $Scopes
+    }
+    else {
+        @($Scopes + @($existingScopes | Where-Object { $Scopes -notcontains $_ }))
+    }
     $mergedScopeText = Join-ScopeText -Scopes $mergedScopes
     Invoke-GraphRequestWithRetry -Method PATCH -Uri (New-GraphUri -Path "oauth2PermissionGrants/$($grant.id)") -Body @{
         scope      = $mergedScopeText
@@ -775,6 +804,10 @@ function Write-EnvFile {
 PORT=$($Values.PORT)
 TENANT_ID=$($Values.TENANT_ID)
 SPA_CLIENT_ID=$($Values.SPA_CLIENT_ID)
+WEBAPP_CLIENT_ID=$($Values.WEBAPP_CLIENT_ID)
+WEBAPP_CLIENT_SECRET=$($Values.WEBAPP_CLIENT_SECRET)
+WEBAPP_CERT_PATH=$($Values.WEBAPP_CERT_PATH)
+WEBAPP_KEY_PATH=$($Values.WEBAPP_KEY_PATH)
 API_CLIENT_ID=$($Values.API_CLIENT_ID)
 API_CLIENT_SECRET=$($Values.API_CLIENT_SECRET)
 DAEMON_CLIENT_ID=$($Values.DAEMON_CLIENT_ID)
@@ -841,6 +874,7 @@ try {
         throw 'Microsoft Graph service principal was not found in this tenant.'
     }
 
+    $graphWebAppScopes = Get-DelegatedScopeResourceAccess -ResourceServicePrincipal $graphSp -ScopeValues @('openid', 'profile', 'offline_access', 'User.Read')
     $graphOpenIdScopes = Get-DelegatedScopeResourceAccess -ResourceServicePrincipal $graphSp -ScopeValues @('openid', 'profile', 'offline_access', 'User.Read', 'UserAuthenticationMethod.Read')
     $graphUserReadScope = Get-DelegatedScopeResourceAccess -ResourceServicePrincipal $graphSp -ScopeValues @('User.Read')
     $graphUserReadAllRole = Get-AppRoleResourceAccess -ResourceServicePrincipal $graphSp -RoleValue 'User.Read.All'
@@ -855,6 +889,28 @@ try {
     } -PatchProperties @{
         spa                    = @{ redirectUris = @("http://localhost:$Port/auth-callback") }
         isFallbackPublicClient = $true
+        signInAudience         = 'AzureADMyOrg'
+    }
+
+    $webAppRequired = @(
+        New-RequiredResourceAccess -ResourceAppId $GraphAppId -ResourceAccess $graphWebAppScopes
+    )
+    $webAppSettings = @{
+        redirectUris          = @("http://localhost:$Port/webapp/callback")
+        implicitGrantSettings = @{
+            enableIdTokenIssuance     = $false
+            enableAccessTokenIssuance = $false
+        }
+    }
+    $webApp = Ensure-Application -DisplayName "$Prefix-WebApp" -CreateProperties @{
+        web                    = $webAppSettings
+        requiredResourceAccess = @($webAppRequired)
+        isFallbackPublicClient = $false
+    } -PatchProperties @{
+        web                    = $webAppSettings
+        spa                    = @{ redirectUris = @() }
+        requiredResourceAccess = @($webAppRequired)
+        isFallbackPublicClient = $false
         signInAudience         = 'AzureADMyOrg'
     }
 
@@ -888,11 +944,13 @@ try {
 
     Write-Step 'Creating service principals'
     $spaSp = Ensure-ServicePrincipal -AppId $spaApp.appId -DisplayName $spaApp.displayName
+    $webAppSp = Ensure-ServicePrincipal -AppId $webApp.appId -DisplayName $webApp.displayName
     $apiSp = Ensure-ServicePrincipal -AppId $apiApp.appId -DisplayName $apiApp.displayName
     $daemonSp = Ensure-ServicePrincipal -AppId $daemonApp.appId -DisplayName $daemonApp.displayName
     $mcpSp = Ensure-ServicePrincipal -AppId $mcpApp.appId -DisplayName $mcpApp.displayName
 
     Write-Step 'Creating short-lived client secrets'
+    $webAppSecret = Reset-AppPassword -Application $webApp
     $apiSecret = Reset-AppPassword -Application $apiApp
     $daemonSecret = Reset-AppPassword -Application $daemonApp
     $mcpSecret = Reset-AppPassword -Application $mcpApp
@@ -904,6 +962,7 @@ try {
         $certificateInfo = Set-DaemonCertificate -Application $daemonApp
         $daemonCertPath = $certificateInfo.CertRelativePath
         $daemonKeyPath = $certificateInfo.KeyRelativePath
+        Add-ApplicationCertificate -Application $webApp -KeyCredential $certificateInfo.KeyCredential -Description $webApp.displayName
     }
 
     Ensure-AppRoleAssignment -PrincipalServicePrincipalId $daemonSp.id -ResourceServicePrincipalId $graphSp.id -AppRoleId $graphUserReadAllRole.id -Description 'Daemon -> Microsoft Graph User.Read.All'
@@ -975,6 +1034,7 @@ try {
 
     Write-Step 'Granting delegated permissions so the demo shows no consent prompts'
     Ensure-OAuth2Grant -ClientServicePrincipalId $spaSp.id -ResourceServicePrincipalId $graphSp.id -Scopes @('openid', 'profile', 'offline_access', 'User.Read', 'UserAuthenticationMethod.Read') -Description 'SPA -> Microsoft Graph'
+    Ensure-OAuth2Grant -ClientServicePrincipalId $webAppSp.id -ResourceServicePrincipalId $graphSp.id -Scopes @('openid', 'profile', 'offline_access', 'User.Read') -Description 'WebApp -> Microsoft Graph' -ExactScopes
     Ensure-OAuth2Grant -ClientServicePrincipalId $spaSp.id -ResourceServicePrincipalId $apiSp.id -Scopes @('access_as_user') -Description 'SPA -> API'
     Ensure-OAuth2Grant -ClientServicePrincipalId $spaSp.id -ResourceServicePrincipalId $mcpSp.id -Scopes @('mcp.tools') -Description 'SPA -> MCP'
     Ensure-OAuth2Grant -ClientServicePrincipalId $apiSp.id -ResourceServicePrincipalId $graphSp.id -Scopes @('User.Read') -Description 'API -> Microsoft Graph'
@@ -999,6 +1059,10 @@ try {
         PORT                  = $Port
         TENANT_ID             = $TenantId
         SPA_CLIENT_ID         = $spaApp.appId
+        WEBAPP_CLIENT_ID      = $webApp.appId
+        WEBAPP_CLIENT_SECRET  = $webAppSecret
+        WEBAPP_CERT_PATH      = $daemonCertPath
+        WEBAPP_KEY_PATH       = $daemonKeyPath
         API_CLIENT_ID         = $apiApp.appId
         API_CLIENT_SECRET     = $apiSecret
         DAEMON_CLIENT_ID      = $daemonApp.appId
@@ -1021,6 +1085,7 @@ try {
     Write-Host 'Provisioning summary' -ForegroundColor Green
     Write-Host "  Tenant:              $TenantId"
     Write-Host "  SPA client ID:       $($spaApp.appId)"
+    Write-Host "  WebApp client ID:    $($webApp.appId)"
     Write-Host "  API client ID:       $($apiApp.appId)"
     Write-Host "  Daemon client ID:    $($daemonApp.appId)"
     Write-Host "  Daemon SP ID:        $($daemonSp.id)"

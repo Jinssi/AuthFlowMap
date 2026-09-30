@@ -53,7 +53,7 @@ function renderCaSim(main, flow) {
     <div class="flow-head"><div><h1>${esc(flow.title)}</h1><div class="muted">${esc(flow.subtitle)}</div>
       <div class="tags"><span class="pill accent">Access, MFA and devices</span><span class="pill live">● Runs live</span><span class="pill">${CAS_POLICIES.length} sample policies</span></div></div></div>
     <details class="briefing card card-pad"><summary>Briefing. Read this before you start</summary>
-      <div class="brief-grid"><div><h3>What this shows</h3><div>${b.what}</div></div>
+      <div class="brief-grid"><div><h3>What this shows</h3><div>${b.what}</div>${docLinksHtml(flow.id)}</div>
       <div><h3>What has to be set up</h3><ul class="tight">${b.prereqs.map((p) => `<li>${p}</li>`).join('')}</ul></div>
       <div><h3>Anti-pattern to avoid</h3><div class="notice bad">${b.antiPattern}</div><h3>Note</h3><div class="notice">${b.verify}</div></div></div></details>
     <div class="casim-grid">
