@@ -397,13 +397,6 @@ function Set-ApiApplication {
 
     $existingScope = @($Application.api.oauth2PermissionScopes) | Where-Object { $_.value -eq $ScopeValue } | Select-Object -First 1
     $scopeId = if ($null -ne $existingScope) { $existingScope.id } else { [guid]::NewGuid().Guid }
-    $preAuthorizedApplications = @()
-    if ($PreAuthorizedClientAppId) {
-        $preAuthorizedApplications += @{
-            appId         = $PreAuthorizedClientAppId
-            permissionIds = @($scopeId)
-        }
-    }
 
     $patch = @{
         identifierUris        = @("api://$($Application.appId)")
@@ -422,7 +415,6 @@ function Set-ApiApplication {
                     userConsentDescription  = $ScopeDescription
                 }
             )
-            preAuthorizedApplications = $preAuthorizedApplications
         }
     }
 
@@ -431,6 +423,22 @@ function Set-ApiApplication {
     }
 
     Invoke-GraphRequestWithRetry -Method PATCH -Uri (New-GraphUri -Path "applications/$($Application.id)") -Headers $Headers -Body $patch -ErrorContext "configuring API $($Application.displayName)" | Out-Null
+
+    # Graph validates preAuthorizedApplications against already-persisted scopes, so this must be a second PATCH.
+    if ($PreAuthorizedClientAppId) {
+        $preAuthPatch = @{
+            api = @{
+                preAuthorizedApplications = @(
+                    @{
+                        appId                  = $PreAuthorizedClientAppId
+                        delegatedPermissionIds = @($scopeId)
+                    }
+                )
+            }
+        }
+        Invoke-GraphRequestWithRetry -Method PATCH -Uri (New-GraphUri -Path "applications/$($Application.id)") -Headers $Headers -Body $preAuthPatch -ErrorContext "pre-authorizing client for API $($Application.displayName)" | Out-Null
+    }
+
     return @{
         Application = Get-ApplicationById -ObjectId $Application.id
         ScopeId     = $scopeId
@@ -491,18 +499,17 @@ function Set-DaemonCertificate {
 
         $freshApp = Get-ApplicationById -ObjectId $Application.id
         $keptCredentials = @($freshApp.keyCredentials) | Where-Object { $_.displayName -ne $SecretDisplayName }
+        # Omit start/endDateTime so Graph reads them from the certificate; the cert truncates to whole seconds.
         $newCredential = @{
             customKeyIdentifier = [Convert]::ToBase64String($cert.GetCertHash())
             displayName         = $SecretDisplayName
-            endDateTime         = $notAfter.UtcDateTime.ToString('o')
             key                 = [Convert]::ToBase64String($cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert))
-            startDateTime       = $notBefore.UtcDateTime.ToString('o')
             type                = 'AsymmetricX509Cert'
             usage               = 'Verify'
         }
 
         Invoke-GraphRequestWithRetry -Method PATCH -Uri (New-GraphUri -Path "applications/$($Application.id)") -Body @{
-            keyCredentials = @($keptCredentials + $newCredential)
+            keyCredentials = @($keptCredentials) + @($newCredential)
         } -ErrorContext "uploading daemon certificate" | Out-Null
         return @{
             CertRelativePath = 'provisioning/out/daemon-cert.pem'
@@ -532,7 +539,7 @@ function Add-ApplicationCertificate {
 
     $keptCredentials = @($freshApp.keyCredentials) | Where-Object { $_.displayName -ne $SecretDisplayName }
     Invoke-GraphRequestWithRetry -Method PATCH -Uri (New-GraphUri -Path "applications/$($Application.id)") -Body @{
-        keyCredentials = @($keptCredentials + $KeyCredential)
+        keyCredentials = @($keptCredentials) + @($KeyCredential)
     } -ErrorContext "uploading certificate to $Description" | Out-Null
     Write-Success "Uploaded certificate for $Description"
 }
