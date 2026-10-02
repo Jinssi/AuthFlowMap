@@ -62,6 +62,29 @@ const L = {
   reviews: ['Access reviews', 'https://learn.microsoft.com/en-us/entra/id-governance/access-reviews-overview'],
   breakGlass: ['Emergency access accounts', 'https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/security-emergency-access'],
   webauthn: ['W3C WebAuthn', 'https://www.w3.org/TR/webauthn-3/'],
+  workIq: ['Work IQ overview', 'https://learn.microsoft.com/en-us/microsoft-365/copilot/extensibility/work-iq/'],
+  workIqMcp: ['Work IQ MCP overview', 'https://learn.microsoft.com/en-us/microsoft-365/copilot/extensibility/work-iq/mcp/overview'],
+  workIqPerms: ['Work IQ API permissions', 'https://learn.microsoft.com/en-us/microsoft-365/copilot/extensibility/work-iq/permissions'],
+  workIqPolicy: ['Policy governance for Work IQ MCP', 'https://learn.microsoft.com/en-us/microsoft-365/copilot/extensibility/work-iq/mcp/policy-governance-mcp'],
+  workIqEnable: ['Enable your tenant for Work IQ', 'https://learn.microsoft.com/en-us/microsoft-365/copilot/extensibility/work-iq/enable-work-iq'],
+  agent365Tools: ['Agent 365 tooling servers and admin control', 'https://learn.microsoft.com/en-us/microsoft-agent-365/tooling-servers-overview'],
+  foundryIq: ['What is Foundry IQ?', 'https://learn.microsoft.com/en-us/azure/foundry/agents/concepts/what-is-foundry-iq'],
+  foundryIqFaq: ['Foundry IQ FAQ: permissions and authentication', 'https://learn.microsoft.com/en-us/azure/foundry/agents/concepts/foundry-iq-faq'],
+  foundryIqConnect: ['Connect a Foundry agent to a knowledge base', 'https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/foundry-iq-connect'],
+  foundryMcpAuth: ['Foundry MCP server authentication', 'https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/mcp-authentication'],
+  searchDocAcl: ['Document-level access control in Azure AI Search', 'https://learn.microsoft.com/en-us/azure/search/search-document-level-access-overview'],
+  searchQueryAcl: ['Query-time ACL and RBAC enforcement', 'https://learn.microsoft.com/en-us/azure/search/search-query-access-control-rbac-enforcement'],
+  kbRetrieve: ['Query a knowledge base, permissions at query time', 'https://learn.microsoft.com/en-us/azure/search/agentic-retrieval-how-to-retrieve'],
+  wiqKs: ['Work IQ knowledge source', 'https://learn.microsoft.com/en-us/azure/search/agentic-knowledge-source-how-to-work-iq'],
+  spRemoteKs: ['Remote SharePoint knowledge source', 'https://learn.microsoft.com/en-us/azure/search/agentic-knowledge-source-how-to-sharepoint-remote'],
+  fabricIq: ['What is Fabric IQ?', 'https://learn.microsoft.com/en-us/fabric/iq/overview'],
+  fabricIqAgents: ['Connect Foundry agents to Fabric IQ', 'https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/tools/fabric-iq'],
+  copilotData: ['Copilot data protection architecture', 'https://learn.microsoft.com/en-us/microsoft-365/copilot/microsoft-365-copilot-architecture-data-protection-auditing'],
+  copilotPurview: ['Purview considerations for Microsoft 365 Copilot', 'https://learn.microsoft.com/en-us/purview/ai-m365-copilot-considerations'],
+  dlpCopilot: ['DLP for Microsoft 365 Copilot', 'https://learn.microsoft.com/en-us/purview/dlp-microsoft365-copilot-location-learn-about'],
+  semIndex: ['Semantic indexing, reduce oversharing', 'https://learn.microsoft.com/en-us/microsoftsearch/semantic-index-for-copilot'],
+  rcd: ['Restricted Content Discovery', 'https://learn.microsoft.com/en-us/sharepoint/restricted-content-discovery'],
+  dag: ['Data access governance reports', 'https://learn.microsoft.com/en-us/sharepoint/data-access-governance-reports'],
 };
 const DOC_LINKS = {
   'auth-code-pkce': [L.authCode, L.spa, L.pkce, L.oauth21],
@@ -83,6 +106,10 @@ const DOC_LINKS = {
   'mcp-auth': [L.mcpAuth, L.rfc9728, L.rfc8414, L.rfc8707, L.rfc7591],
   'mcp-obo': [L.mcpAuth, L.mcpSec, L.obo],
   'multi-agent': [L.agentObo, L.agentClaims, L.rfc8693],
+  'workiq-mcp': [L.workIqMcp, L.workIqPerms, L.workIqPolicy, L.workIqEnable, L.agent365Tools, L.copilotData],
+  'foundry-iq': [L.foundryIq, L.foundryIqConnect, L.kbRetrieve, L.searchQueryAcl, L.searchDocAcl, L.foundryIqFaq],
+  'foundry-workiq': [L.wiqKs, L.kbRetrieve, L.workIqPerms, L.obo, L.wifTrust],
+  'iq-oversharing': [L.kbRetrieve, L.searchQueryAcl, L.fabricIqAgents, L.dag, L.rcd, L.copilotPurview],
 };
 function docLinksHtml(id) {
   const list = DOC_LINKS[id];
@@ -97,6 +124,9 @@ const DOC_GROUPS = [
   ['Hybrid and external identities', [L.hybrid, L.phs, L.b2b, L.xtap]],
   ['Microsoft Entra Agent ID', [L.agentIds, L.blueprint, L.agentObo, L.agentUser, L.agentClaims, L.inherit]],
   ['MCP and open standards', [L.mcpAuth, L.mcpSec, L.pkce, L.oauth21, L.rfc9728, L.rfc8414, L.rfc8707, L.rfc7591, L.rfc8693, L.webauthn]],
+  ['Work IQ', [L.workIq, L.workIqMcp, L.workIqPerms, L.workIqPolicy, L.workIqEnable, L.agent365Tools]],
+  ['Foundry IQ and Fabric IQ', [L.foundryIq, L.foundryIqFaq, L.foundryIqConnect, L.foundryMcpAuth, L.kbRetrieve, L.searchQueryAcl, L.searchDocAcl, L.wiqKs, L.spRemoteKs, L.fabricIq, L.fabricIqAgents]],
+  ['Oversharing and data protection', [L.copilotData, L.copilotPurview, L.dlpCopilot, L.semIndex, L.dag, L.rcd]],
 ];
 REFERENCE.unshift({
   id: 'docs', title: 'Documentation links',

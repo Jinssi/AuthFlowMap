@@ -21,6 +21,13 @@ const ID = {
   mi: { name: 'Contoso Web App (managed identity)', clientId: '0f1e2d3c-4b5a-4968-8778-695a4b3c2d1e', oid: '6d5c4b3a-2918-4f7e-a6d5-c4b3a2918f7e' },
   wif: { name: 'GitHub Actions deploy', appId: '5e4d3c2b-1a09-4f8e-b7d6-c5b4a3928170', repo: 'contoso/orders-api' },
   downstream: { name: 'ERP API', uri: 'api://contoso-erp', appId: 'aa11bb22-cc33-4d44-8e55-ff6677889900' },
+  // IQ section. Work IQ's app ID and URIs are Microsoft's public, documented values. The rest is made up.
+  workiq: { name: 'Work IQ', appId: 'fdcc1f02-fc51-4226-8753-f668596af7f7', uri: 'api://workiq.svc.cloud.microsoft', mcp: 'https://workiq.svc.cloud.microsoft/mcp' },
+  wiqClient: { name: 'Contoso Work IQ client', appId: '2c9e4b71-8d3a-4f6e-b1c2-7a8d9e0f1b2c' },
+  wiqApp: { name: 'Contoso Work IQ connector (app registration)', appId: '6b7c8d9e-0f1a-4b2c-9d3e-4f5a6b7c8d90', ficId: '8f9e0d1c-2b3a-4c5d-8e7f-6a5b4c3d2e1f' },
+  search: { name: 'Contoso search service', host: 'https://contoso-search.search.windows.net', miOid: '7d6c5b4a-3928-4f17-a6e5-d4c3b2a19f80', kb: 'hr-policies-kb', api: '2026-08-01-preview' },
+  foundry: { name: 'Contoso policy assistant', project: 'https://contoso-ai.services.ai.azure.com/api/projects/contoso-hr', miOid: '4e5f6a7b-8c9d-4e0f-a1b2-c3d4e5f6a7b8' },
+  groups: { procurement: '1f2e3d4c-5b6a-4978-8695-a4b3c2d1e0f9', allStaff: '9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d', hr: '5d4c3b2a-1908-4f7e-b6d5-c4b3a2918f70' },
   graphAppId: '00000003-0000-0000-c000-000000000000',
   port: 5100,
 };

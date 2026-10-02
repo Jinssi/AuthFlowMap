@@ -9,6 +9,7 @@ const GROUPS = [
   { id: 'access', title: 'Access, MFA and devices' },
   { id: 'agent', title: 'Microsoft Entra Agent ID' },
   { id: 'mcp', title: 'MCP & multi-agent' },
+  { id: 'iq', title: 'IQ and grounded agents' },
   { id: 'ref', title: 'Reference' },
 ];
 
@@ -25,7 +26,7 @@ function renderNav() {
     html += `<div class="nav-group"><div class="nav-group-title">${g.title}</div>`;
     if (g.id === 'overview') html += item('#architecture', 'Architecture');
     else if (g.id === 'ref') html += item('#reference', 'Reference tables') + item('#reference/docs', 'Documentation links');
-    else FLOWS.filter((f) => f.group === g.id).forEach((f) => { html += item(`#flow/${f.id}`, f.title, f.live ? `<span class="nav-badge" title="Can run live against Entra">LIVE</span>` : ''); });
+    else FLOWS.filter((f) => f.group === g.id).forEach((f) => { html += item(`#flow/${f.id}`, f.title, f.live ? `<span class="nav-badge" title="Can run live against Entra">LIVE</span>` : f.preview ? `<span class="nav-badge preview" title="Uses preview features">PREVIEW</span>` : ''); });
     html += '</div>';
   }
   $('#nav').innerHTML = html;
@@ -50,7 +51,7 @@ function route() {
 
 /* ---------- architecture ---------- */
 function renderArchitecture(main) {
-  const W = 1180, H = 660;
+  const W = 1180, H = 780;
   const zones = ZONES.map((z) => `<rect class="zone-rect" x="${z.x}" y="20" width="${z.w}" height="${H - 30}" rx="14"/><text class="zone-label" x="${z.x + z.w / 2}" y="44" text-anchor="middle">${esc(z.label)}</text>`).join('');
   const edges = ARCH_EDGES.map(([a, b]) => { const [x1, y1] = ARCH_POS[a], [x2, y2] = ARCH_POS[b]; return `<line class="arch-edge" data-a="${a}" data-b="${b}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`; }).join('');
   const nodes = Object.keys(ARCH_POS).map((id) => nodeSvg(id, ARCH_POS[id][0], ARCH_POS[id][1], 'clickable')).join('');
@@ -70,7 +71,7 @@ function renderArchitecture(main) {
       </div>
     </div>
     <h2 style="margin-top:20px">Flow catalogue</h2>
-    ${['standard', 'access', 'agent', 'mcp'].map((g) => `<h3>${GROUPS.find((x) => x.id === g).title}</h3><div class="grid-3">${FLOWS.filter((f) => f.group === g).map(flowCard).join('')}</div>`).join('')}
+    ${['standard', 'access', 'agent', 'mcp', 'iq'].map((g) => `<h3>${GROUPS.find((x) => x.id === g).title}</h3><div class="grid-3">${FLOWS.filter((f) => f.group === g).map(flowCard).join('')}</div>`).join('')}
     <h2 style="margin-top:20px">Token types at a glance</h2>
     <div class="grid-3">
       <div class="card card-pad"><b>Access token</b><p class="muted">Made for a single API, named in <code>aud</code>. Carries <code>scp</code> for delegated access or <code>roles</code> for app access. Lasts about 60 to 90 minutes. Clients shouldn't read it.</p></div>

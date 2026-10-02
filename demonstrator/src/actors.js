@@ -123,6 +123,26 @@ const ACTORS = {
     desc: 'Scores every sign-in and every user for risk, using signals such as unfamiliar location, impossible travel, leaked credentials and token anomalies. Conditional Access policies act on those scores.',
     facts: ['Sign-in risk is about this one sign-in. User risk is about the account', 'Users can fix their own risk with MFA or a secure password change', 'Needs Entra ID P2'],
   },
+  foundry: {
+    icon: '🧭', name: 'Foundry agent', role: 'Foundry Agent Service · project managed identity', zone: 'agents',
+    desc: `${ID.foundry.name} runs in Foundry Agent Service. It reaches a Foundry IQ knowledge base through an MCP tool, and the project's managed identity authenticates that call. The user's identity travels separately, in a header the caller supplies on every request.`,
+    facts: ['The project connection uses ProjectManagedIdentity with audience https://search.azure.com/', 'The managed identity needs Search Index Data Reader, which only lets it query', 'Per-user trimming only happens if the user token reaches the knowledge base'],
+  },
+  search: {
+    icon: '🔎', name: 'Foundry IQ knowledge base', role: 'Azure AI Search · agentic retrieval', zone: 'resources',
+    desc: `The knowledge base ${ID.search.kb} lives in Azure AI Search. It plans the query, searches its knowledge sources and returns grounded passages with citations. On indexed sources it filters results against the ACLs, RBAC scopes and sensitivity labels it ingested. On remote sources it calls the source as the user.`,
+    facts: ['Two credentials per request: the caller in Authorization, the user in x-ms-query-source-authorization', 'Expands the user\'s groups through Microsoft Graph at query time', 'A knowledge source created without permission ingestion returns everything to everyone'],
+  },
+  workiq: {
+    icon: '💼', name: 'Work IQ', role: 'Microsoft 365 intelligence · MCP, A2A, REST', zone: 'resources',
+    desc: 'The context layer behind Microsoft 365 Copilot, offered to your own agents over MCP, A2A and REST. It reads mail, files, meetings and chats only as the signed-in user, and a tenant policy layer decides which paths and operations agents may use.',
+    facts: [`Scope ${ID.workiq.uri}/WorkIQAgent.Ask is delegated only and needs admin consent`, 'Write operations are off by default in the tenant policy', 'Every request is checked again against the user\'s Microsoft 365 permissions'],
+  },
+  m365: {
+    icon: '🗂️', name: 'Microsoft 365 content', role: 'SharePoint, OneDrive, Exchange, Teams + Purview', zone: 'resources',
+    desc: 'The documents, mail and chats that Copilot and Work IQ ground on. Their permissions and Purview sensitivity labels decide what comes back. Nothing in the AI layer widens them.',
+    facts: ['The semantic index respects existing permissions', 'An encrypted item needs both VIEW and EXTRACT usage rights before Copilot returns it', 'A site shared with everyone in the company is visible to everyone\'s Copilot'],
+  },
 };
 
 const ZONES = [
@@ -135,9 +155,9 @@ const ZONES = [
 const ARCH_POS = {
   user: [120, 100], browser: [120, 215], pc: [120, 330], device: [120, 445], attacker: [120, 590],
   api: [345, 100], webapp: [345, 210], daemon: [345, 320], azapp: [345, 430], workload: [345, 560],
-  agent: [585, 110], llm: [585, 230], mcpclient: [585, 350], orchestrator: [585, 470], subagent: [585, 590],
+  agent: [585, 110], llm: [585, 230], mcpclient: [585, 350], orchestrator: [585, 470], subagent: [585, 590], foundry: [585, 710],
   risk: [825, 100], entra: [825, 215], intune: [825, 330], idp: [825, 470], imds: [825, 590],
-  graph: [1055, 110], mcpserver: [1055, 260], downstream: [1055, 410], arm: [1055, 560],
+  graph: [1055, 90], mcpserver: [1055, 195], downstream: [1055, 300], arm: [1055, 405], search: [1055, 515], workiq: [1055, 620], m365: [1055, 725],
 };
 const ARCH_EDGES = [
   ['user', 'browser'], ['user', 'device'], ['browser', 'api'], ['browser', 'webapp'], ['webapp', 'entra'], ['webapp', 'graph'], ['browser', 'entra'], ['device', 'entra'],
@@ -147,6 +167,8 @@ const ARCH_EDGES = [
   ['mcpclient', 'mcpserver'], ['mcpclient', 'entra'], ['mcpclient', 'llm'], ['mcpserver', 'entra'], ['mcpserver', 'graph'], ['mcpserver', 'downstream'],
   ['orchestrator', 'subagent'], ['orchestrator', 'entra'], ['subagent', 'entra'],   ['subagent', 'downstream'],
   ['pc', 'entra'], ['intune', 'entra'], ['risk', 'entra'], ['attacker', 'browser'],
+  ['webapp', 'foundry'], ['foundry', 'llm'], ['foundry', 'entra'], ['foundry', 'search'], ['search', 'entra'], ['search', 'graph'], ['search', 'workiq'],
+  ['mcpclient', 'workiq'], ['workiq', 'entra'], ['workiq', 'm365'],
 ];
 
 /* =====================================================================

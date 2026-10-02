@@ -10,12 +10,13 @@ const INSP_TABS = [
 function flowPageHtml(flow) {
   const b = flow.brief;
   const liveCap = flow.live ? `<span class="pill live" title="This flow can run against a real Entra tenant in Live mode">● Runs live</span>` : '<span class="pill">Simulated only</span>';
-  const groupName = { standard: 'Standard OAuth / OIDC', access: 'Access, MFA and devices', agent: 'Microsoft Entra Agent ID', mcp: 'MCP & multi-agent' }[flow.group];
+  const groupName = GROUPS.find((g) => g.id === flow.group)?.title || '';
+  const previewPill = flow.preview ? `<span class="pill warn" title="${esc(flow.preview)}">Uses preview features</span>` : '';
   const variants = flow.variants ? `<h3>Variant</h3><div class="variant-row">${flow.variants.map((v, i) => `<label class="actor-chip" title="${esc(v.desc)}"><input type="radio" name="variant" value="${v.id}" ${i ? '' : 'checked'}> ${esc(v.label)}</label>`).join('')}</div><div class="soft" style="font-size:12px;margin-top:4px" id="variantDesc">${esc(flow.variants[0].desc)}</div>` : '';
   return `
   <div class="flow-head">
     <div><h1>${esc(flow.title)}</h1><div class="muted">${esc(flow.subtitle)}</div>
-      <div class="tags"><span class="pill accent">${groupName}</span>${liveCap}<span class="pill">${flow.actors.length} components</span><span class="pill" id="stepCountPill"></span></div></div>
+      <div class="tags"><span class="pill accent">${groupName}</span>${liveCap}${previewPill}<span class="pill">${flow.actors.length} components</span><span class="pill" id="stepCountPill"></span></div></div>
   </div>
   <details class="briefing card card-pad" open>
     <summary>Briefing. Read this before you press Start</summary>
