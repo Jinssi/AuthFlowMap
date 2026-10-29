@@ -149,20 +149,79 @@ export function maskUpnsDeep(value, depth = 0) {
   return value;
 }
 
+// ---- Value-based safety net ----
+// The field-name masking above covers the places tokens are expected. These patterns catch
+// token-shaped values anywhere else: error bodies, query strings, notes and unknown fields.
+
 // Anything that looks like a compact JWS with a non-empty signature, anywhere in a string.
 const EMBEDDED_JWT = /[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g;
+// JWS / JWE shape: base64url segments separated by dots, the first one starting with eyJ ({").
+const JWT_LIKE = /eyJ[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]*){2,4}/g;
+// Entra ID client secret format: 3 chars, a digit, "Q~", then 31 to 34 chars.
+const ENTRA_SECRET = /[A-Za-z0-9_~.-]{3}\dQ~[A-Za-z0-9_~.-]{31,34}/g;
+// Authorization header value (also URL-encoded: Bearer%20... or Bearer+...).
+const BEARER = /\b(Bearer)(\s+|%20|\+)([A-Za-z0-9\-._~+/]+=*)/gi;
+const SENSITIVE_NAMES = 'access_token|refresh_token|id_token|client_secret|client_assertion|assertion|device_code|code_verifier|code|password';
+const SECRET_NAMES = new Set(['client_secret', 'password']);
+// name=value in a query string or form body.
+const QUERY_PARAM = new RegExp(`(^|[?&#;\\s])(${SENSITIVE_NAMES})=([^&#\\s"'<>]+)`, 'gi');
+// "name": "value" in JSON text (for example a truncated response body).
+const JSON_PARAM = new RegExp(`("(?:${SENSITIVE_NAMES})"\\s*:\\s*")([^"]+)(")`, 'gi');
+// Long opaque base64url blob (refresh token, authorization code, device code), dots allowed.
+const OPAQUE_RUN = /[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*/g;
+const OPAQUE_MIN = 64;
+
+const isMasked = (v) => v.includes('…') || v === SECRET_MASK || v.startsWith('[redacted');
+
+function maskNamedValue(name, value) {
+  if (isMasked(value)) return value;
+  return SECRET_NAMES.has(name.toLowerCase()) ? SECRET_MASK : maskToken(value);
+}
+
+// A single base64 segment that decodes to a JSON object (for example a claims challenge) is not a token.
+function isBase64Json(run) {
+  if (run.includes('.') || !run.startsWith('eyJ')) return false;
+  try {
+    const v = JSON.parse(Buffer.from(run, 'base64url').toString('utf8'));
+    return v !== null && typeof v === 'object';
+  } catch {
+    return false;
+  }
+}
+
+function looksOpaque(run) {
+  return run.length >= OPAQUE_MIN && /\d/.test(run) && /[A-Z]/.test(run) && /[a-z]/.test(run) && !isBase64Json(run);
+}
 
 function scrubString(s, secrets) {
-  let out = s.replace(EMBEDDED_JWT, (m) => (isJwt(m) ? maskToken(m) : m));
+  let out = s;
   for (const secret of secrets) {
     if (secret && out.includes(secret)) out = out.split(secret).join(SECRET_MASK);
   }
+  out = out.replace(ENTRA_SECRET, SECRET_MASK);
+  out = out.replace(JWT_LIKE, (m) => maskToken(m));
+  out = out.replace(EMBEDDED_JWT, (m) => (isJwt(m) ? maskToken(m) : m));
+  out = out.replace(BEARER, (m, word, sep, val, offset, str) => {
+    const next = str[offset + m.length] ?? '';
+    // Skip short words ("Bearer token"), auth-params (Bearer error="...") and values already masked.
+    if (val.length < 20 || next === '…' || /^[A-Za-z_]+=$/.test(val)) return m;
+    return `${word}${sep}${maskToken(val)}`;
+  });
+  out = out.replace(JSON_PARAM, (m, pre, val, post) => `${pre}${maskNamedValue(pre.slice(1, pre.indexOf('"', 1)), val)}${post}`);
+  out = out.replace(QUERY_PARAM, (m, pre, name, val) => `${pre}${name}=${maskNamedValue(name, val)}`);
+  out = out.replace(OPAQUE_RUN, (m) => (looksOpaque(m) ? maskToken(m) : m));
   return out;
 }
 
+/** Mask token-shaped values and known secrets in one string (also for text reflected in HTML). */
+export function scrubText(s, secrets = []) {
+  return scrubString(String(s ?? ''), secrets);
+}
+
 /**
- * Safety net applied to every trace event: masks any full JWT embedded in any string and
- * replaces known secret values. Returns a deep copy.
+ * Safety net applied to every trace event: masks token-shaped values (JWTs, Bearer values,
+ * client secrets, long opaque blobs, sensitive query/JSON parameters) in every string and every
+ * object key, and replaces known secret values. Returns a deep copy.
  */
 export function scrubDeep(value, secrets = [], depth = 0) {
   if (depth > 20) return '[depth limit]';
@@ -170,7 +229,7 @@ export function scrubDeep(value, secrets = [], depth = 0) {
   if (Array.isArray(value)) return value.map((v) => scrubDeep(v, secrets, depth + 1));
   if (isPlainObject(value)) {
     const out = {};
-    for (const [k, v] of Object.entries(value)) out[k] = scrubDeep(v, secrets, depth + 1);
+    for (const [k, v] of Object.entries(value)) out[scrubString(k, secrets)] = scrubDeep(v, secrets, depth + 1);
     return out;
   }
   return value;

@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import { GRAPH_SCOPES } from '../config.js';
 import { loadClientAssertion } from '../entra.js';
 import { isValidRunId } from '../trace.js';
-import { tokenEntry } from '../mask.js';
+import { scrubText, tokenEntry } from '../mask.js';
 import { errorMessage } from '../httpUtil.js';
 
 const PENDING_TTL_MS = 10 * 60 * 1000;
@@ -14,6 +14,7 @@ const MAX_ENTRIES = 100;
 const ME_PATH = '/me?$select=displayName,userPrincipalName,id';
 const JWT_BEARER = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer';
 const COOKIE_ATTRS = 'HttpOnly; SameSite=Lax; Path=/webapp';
+const MAX_REFLECTED = 300;
 
 const b64url = (n) => crypto.randomBytes(n).toString('base64url');
 
@@ -45,6 +46,12 @@ function qstr(v) {
   return typeof v === 'string' && v !== '' ? v : null;
 }
 
+/** Text from a request or an upstream error, safe to keep: token-shaped values masked, length capped. */
+export function safeText(s, max = MAX_REFLECTED, secrets = []) {
+  const str = scrubText(s, secrets);
+  return str.length > max ? `${str.slice(0, max)}…` : str;
+}
+
 const maskState = (state) => `${state.slice(0, 8)}…`;
 const maskCode = (code) => `${code.slice(0, 6)}…[redacted]`;
 
@@ -72,8 +79,8 @@ function sendHtml(res, status, html, scriptNonce) {
   res.status(status).type('html').send(html);
 }
 
-function sendError(res, status, message) {
-  sendHtml(res, status, page('AuthFlow demo web app', `<h1>Sign-in failed</h1><p>${escapeHtml(message)}</p><p>You can close this window.</p>`));
+function sendError(res, status, message, secrets = []) {
+  sendHtml(res, status, page('AuthFlow demo web app', `<h1>Sign-in failed</h1><p>${escapeHtml(safeText(message, MAX_REFLECTED, secrets))}</p><p>You can close this window.</p>`));
 }
 
 /**
@@ -120,8 +127,8 @@ export function mountWebApp(app, ctx) {
   // ---- 1. login: state, nonce, PKCE, binding cookie, 302 to /authorize ----
   app.get('/webapp/login', (req, res) => {
     const { runId } = req.query;
-    if (!isValidRunId(runId)) {
-      return res.status(400).json({ error: 'invalid_run_id', error_description: 'runId must match ^[A-Za-z0-9_-]{8,64}$' });
+    if (!isValidRunId(runId) || trace.flowOf(runId) !== 'web-app') {
+      return res.status(400).json({ error: 'invalid_run_id', error_description: 'runId must be a web-app run from POST /api/runs' });
     }
     const variant = req.query.variant ?? 'secret';
     if (variant !== 'secret' && variant !== 'certificate') {
@@ -191,12 +198,15 @@ export function mountWebApp(app, ctx) {
     const { runId, variant } = entry;
 
     const code = qstr(req.query.code);
-    const err = qstr(req.query.error);
-    const errDesc = qstr(req.query.error_description);
+    // Reflected error text: mask token-shaped values and cap the length before it reaches the trace or the page.
+    const rawErr = qstr(req.query.error);
+    const err = rawErr ? safeText(rawErr, 100, cfg.secrets) : null;
+    const rawDesc = qstr(req.query.error_description);
+    const errDesc = rawDesc ? safeText(rawDesc, MAX_REFLECTED, cfg.secrets) : null;
     const entraError = err ? `${err}: ${(errDesc ?? '').split(/\r?\n/)[0] || 'no description'}` : (code ? null : 'invalid_request: no code in the callback');
 
     const query = err
-      ? `error=${encodeURIComponent(err)}${errDesc ? `&error_description=${encodeURIComponent(errDesc.slice(0, 300))}` : ''}&state=${state}`
+      ? `error=${encodeURIComponent(err)}${errDesc ? `&error_description=${encodeURIComponent(errDesc)}` : ''}&state=${state}`
       : `code=${code ? maskCode(code) : ''}&state=${state}`;
     const callbackUrl = `${cfg.webAppRedirectUri}?${query}`;
     trace.add(runId, {
@@ -233,7 +243,7 @@ export function mountWebApp(app, ctx) {
     res.append('Set-Cookie', `wa_bind=; ${COOKIE_ATTRS}; Max-Age=0`);
     if (entraError) {
       trace.finish(runId, entraError);
-      return sendError(res, 400, entraError);
+      return sendError(res, 400, entraError, cfg.secrets);
     }
 
     try {
@@ -338,7 +348,7 @@ export function mountWebApp(app, ctx) {
       return undefined;
     } catch (e) {
       trace.finish(runId, errorMessage(e));
-      return sendError(res, 502, errorMessage(e));
+      return sendError(res, 502, errorMessage(e), cfg.secrets);
     }
   });
 

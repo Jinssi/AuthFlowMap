@@ -15,6 +15,13 @@ test.after(async () => {
   await srv.close();
 });
 
+async function startRun(flow, base = srv.base) {
+  const res = await fetch(`${base}/api/runs`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ flow }) });
+  assert.equal(res.status, 201);
+  return res.json();
+}
+const readTrace = (run, base = srv.base) => fetch(`${base}/api/trace/${run.runId}`, { headers: { 'x-trace-key': run.traceKey } });
+
 test('GET /api/health reports live:false and never includes secrets', async () => {
   const res = await fetch(`${srv.base}/api/health`);
   assert.equal(res.status, 200);
@@ -125,13 +132,14 @@ test('POST /mcp with invalid token -> 401 with error="invalid_token"', async () 
 });
 
 test('GET /api/obo/me without token -> 401 invalid_token', async () => {
-  const res = await fetch(`${srv.base}/api/obo/me`, { headers: { 'x-run-id': 'obo-run-0001' } });
+  const run = await startRun('obo');
+  const res = await fetch(`${srv.base}/api/obo/me`, { headers: { 'x-run-id': run.runId } });
   assert.equal(res.status, 401);
   assert.match(res.headers.get('www-authenticate'), /^Bearer error="invalid_token"/);
   const j = await res.json();
   assert.equal(j.error, 'invalid_token');
   assert.ok(Array.isArray(j.checks));
-  const t = await (await fetch(`${srv.base}/api/trace/obo-run-0001`)).json();
+  const t = await (await readTrace(run)).json();
   assert.equal(t.done, true);
   assert.equal(t.events[0].stepId, 'obo-validate');
   assert.equal(t.events[0].status, 'error');
@@ -145,21 +153,41 @@ test('POST /api/agent/obo without token -> 401', async () => {
 });
 
 test('POST /api/stepup/approve without token -> 401 invalid_token, run done', async () => {
+  const run = await startRun('step-up');
   const res = await fetch(`${srv.base}/api/stepup/approve`, {
-    method: 'POST', headers: { 'content-type': 'application/json', 'x-run-id': 'su-run-0000' }, body: JSON.stringify({ paymentId: 'p1', amount: 1 }),
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-run-id': run.runId }, body: JSON.stringify({ paymentId: 'p1', amount: 1 }),
   });
   assert.equal(res.status, 401);
   assert.match(res.headers.get('www-authenticate'), /error="invalid_token"/);
-  const t = await (await fetch(`${srv.base}/api/trace/su-run-0000`)).json();
+  const t = await (await readTrace(run)).json();
   assert.equal(t.done, true);
   assert.equal(t.events[0].stepId, 'su-validate');
   assert.deepEqual(t.events[0].checks.at(-1), { name: 'acrs contains c1', ok: false, detail: 'no acrs claim' });
 });
 
-test('trace endpoint: runId validation and unknown run', async () => {
-  assert.equal((await fetch(`${srv.base}/api/trace/bad`)).status, 400);
-  const j = await (await fetch(`${srv.base}/api/trace/never-seen-run?since=3`)).json();
-  assert.deepEqual(j, { events: [], done: false, error: null });
+test('trace endpoint: needs the run key; unknown run, bad ID and wrong key are all 404', async () => {
+  const run = await startRun('obo');
+  assert.match(run.runId, /^[A-Za-z0-9_-]{22}$/);
+  assert.match(run.traceKey, /^[A-Za-z0-9_-]{43}$/);
+  const ok = await readTrace(run);
+  assert.equal(ok.status, 200);
+  assert.equal(ok.headers.get('cache-control'), 'no-store');
+  assert.deepEqual(await ok.json(), { events: [], done: false, error: null });
+  const other = await startRun('obo');
+  const attempts = [
+    fetch(`${srv.base}/api/trace/${run.runId}`),
+    fetch(`${srv.base}/api/trace/${run.runId}`, { headers: { 'x-trace-key': 'wrong' } }),
+    fetch(`${srv.base}/api/trace/${run.runId}`, { headers: { 'x-trace-key': other.traceKey } }),
+    fetch(`${srv.base}/api/trace/${run.runId}?key=${run.traceKey}`),
+    fetch(`${srv.base}/api/trace/never-seen-run?since=3`, { headers: { 'x-trace-key': run.traceKey } }),
+    fetch(`${srv.base}/api/trace/bad`, { headers: { 'x-trace-key': run.traceKey } }),
+  ];
+  const bodies = [];
+  for (const res of await Promise.all(attempts)) {
+    assert.equal(res.status, 404);
+    bodies.push(await res.text());
+  }
+  assert.equal(new Set(bodies).size, 1, 'same body whether the run exists or not');
   const bad = await fetch(`${srv.base}/api/obo/me`, { headers: { 'x-run-id': 'x' } });
   assert.equal(bad.status, 400);
 });
@@ -169,7 +197,7 @@ test('server-run flows reject bad input / missing config', async () => {
   assert.equal((await post('/api/live/id-protection', { runId: 'run-ok-005' })).status, 503);
   assert.equal((await post('/api/live/ca-whatif', { runId: 'run-ok-006', subject: 'user', context: { type: 'authContext', value: 'c1' } })).status, 503);
   assert.equal((await post('/api/live/ca-whatif', { runId: 'run-ok-006', subject: 'root', context: { type: 'authContext', value: 'c1' } })).status, 400);
-  assert.equal((await post('/api/live/client-credentials', { runId: 'no' })).status, 400);
+  assert.equal((await post('/api/live/client-credentials', { runId: 'no' })).status, 503);
   assert.equal((await post('/api/live/client-credentials', { runId: 'run-ok-001', variant: 'magic' })).status, 400);
   assert.equal((await post('/api/live/client-credentials', { runId: 'run-ok-001', variant: 'secret' })).status, 503);
   assert.equal((await post('/api/live/device-code', { runId: 'run-ok-002' })).status, 503);

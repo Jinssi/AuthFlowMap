@@ -59,7 +59,32 @@ function pkceSignInSteps(p, { client = 'browser', scope, tokName, audName, short
   return short ? steps.filter((s) => !/-(state|policy)$/.test(s.id)) : steps;
 }
 
+/** Entra token endpoint error body, in the shape login.microsoftonline.com returns. */
+function aadstsError(ctx, error, code, text) {
+  const trace = uuid(), corr = uuid(), ts = new Date(ctx.t * 1000).toISOString().replace('T', ' ').replace(/\.\d+Z$/, 'Z');
+  return { error, error_description: `AADSTS${code}: ${text}\r\nTrace ID: ${trace}\r\nCorrelation ID: ${corr}\r\nTimestamp: ${ts}`, error_codes: [code], timestamp: ts, trace_id: trace, correlation_id: corr, error_uri: `https://login.microsoftonline.com/error?code=${code}` };
+}
+
 /* ---------- 1. Authorization code + PKCE ---------- */
+/** Break-it variant: an attacker who copied the authorization code tries to redeem it without the PKCE verifier. */
+function acVariant(ctx, steps) {
+  if (ctx.variant !== 'stolen-code') return steps;
+  const cut = steps.findIndex((s) => s.id === 'ac-code') + 1;
+  return [...steps.slice(0, cut),
+    { id: 'ac-leak', from: 'browser', to: 'attacker', label: 'Code leaks', title: 'The attacker gets a copy of the code', det: 'human',
+      desc: 'The code travels in the redirect URL. A malicious browser extension, a proxy log, browser history or a <code>Referer</code> header can hand it to someone else. The attacker gets the code but not the <code>code_verifier</code>, which never left the app.',
+      why: 'RFC 9700 sections 4.2 and 4.3 list these leaks. Native apps add one more: another app that registers the same redirect URI. That\'s the interception attack RFC 7636 created PKCE for.',
+      kv: { code: '{{code}}', state: '{{state}}', code_verifier: 'unknown to the attacker' } },
+    { id: 'ac-attack-req', from: 'attacker', to: 'entra', label: 'POST /token (stolen code)', title: 'Attacker redeems the stolen code', det: 'protocol',
+      desc: 'The attacker posts the code from their own machine before the app does. The client ID and redirect URI are public, and outside a browser they can set any <code>Origin</code> header. The one thing they can\'t produce is the verifier, so they send a guess.',
+      req: { method: 'POST', url: TOKEN_EP, headers: { ...HDR.form, Origin: ORIGIN }, form: { client_id: ID.spa.appId, grant_type: 'authorization_code', code: '{{code}}', redirect_uri: REDIRECT, code_verifier: randStr(64), scope: SCOPE.graphUser } } },
+    { id: 'ac-attack-res', from: 'entra', to: 'attacker', label: '400 invalid_grant', title: 'Entra rejects the code', det: 'protocol',
+      desc: 'Entra hashes the guessed verifier and compares it with the <code>code_challenge</code> from the authorize request. They don\'t match, so Entra returns <code>invalid_grant</code> with AADSTS501481 and issues no tokens. Leaving the verifier out fails too.',
+      why: 'PKCE binds the code to the client instance that started the sign-in, so a stolen code is worthless on its own. RFC 9700 section 2.1.1 says to use PKCE for every client, confidential ones included.',
+      res: { status: 400, statusText: 'Bad Request', headers: HDR.json, json: aadstsError(ctx, 'invalid_grant', 501481, 'The Code_Verifier does not match the code_challenge supplied in the authorization request.') },
+      checks: [{ name: 'PKCE: SHA256(verifier) = challenge', ok: false, detail: 'The verifier doesn\'t hash to the challenge sent to /authorize' }, { name: 'Code unused and not expired', ok: true }, { name: 'redirect_uri identical to the authorize request', ok: true }, { name: 'Origin header present (SPA platform)', ok: true, detail: 'Set by the attacker. Outside a browser, Origin proves nothing' }] },
+  ];
+}
 FLOWS.push({
   id: 'auth-code-pkce', group: 'standard', icon: '🔑', live: true,
   title: 'Authorization code + PKCE',
@@ -69,6 +94,7 @@ FLOWS.push({
   variants: [
     { id: 'unknown', label: 'Personal device', desc: 'An unmanaged home PC. The user types a password and does MFA, and Conditional Access treats the session as unmanaged.' },
     { id: 'managed', label: 'Managed laptop', desc: 'An Entra joined, compliant laptop. The PRT signs the user in silently and the token carries a deviceid.' },
+    { id: 'stolen-code', simOnly: true, label: 'Break it: stolen code, no verifier', desc: 'Authorization code interception (RFC 7636 section 1, RFC 9700 sections 2.1.1 and 4.5). An attacker who copied the code tries to redeem it without the real code_verifier. Entra rejects it with invalid_grant AADSTS501481 and issues no tokens. Simulation only.' },
   ],
   brief: {
     what: 'If a user is at the keyboard, this is the flow to use. It fits web apps, SPAs, mobile and desktop alike. OAuth 2.1 makes PKCE mandatory for public clients and recommends it for everyone else.',
@@ -79,21 +105,39 @@ FLOWS.push({
     AT: { label: 'Access token (aud = Graph)', ...TK.graphUser(ctx.t, { appid: ID.spa.appId, scp: 'openid profile User.Read email', appName: ID.spa.name, appidacr: '0', extra: ctx.variant === 'managed' ? { amr: ['mfa'], deviceid: 'b7e4c2a1-9f3d-4e6a-8c1b-2d5f7a9e0c34' } : {} }) },
     IDT: { label: 'ID token (who signed in)', ...TK.idToken(ctx.t, ID.spa.appId, ctx.vars.nonce) },
   }),
-  steps: (ctx) => [
+  steps: (ctx) => acVariant(ctx, [
     { id: 'ac-start', from: 'user', to: 'browser', label: 'Click "Sign in"', title: 'User starts sign-in', det: 'human', desc: 'The user opens the app and chooses Sign in. The app has no credentials of its own.' },
     ...pkceSignInSteps('ac', { scope: SCOPE.graphUser, tokName: 'AT', audName: 'AT + ID token', device: ctx.variant }),
     { id: 'ac-graph-req', from: 'browser', to: 'graph', label: 'GET /me (Bearer AT)', title: 'Call Microsoft Graph', det: 'protocol', desc: 'The SPA puts the access token in the Authorization header. Only Graph will accept it, because its <code>aud</code> is Graph.', req: { method: 'GET', url: `${GRAPH}/v1.0/me`, headers: HDR.bearer('AT') } },
     { id: 'ac-graph-res', from: 'graph', to: 'browser', label: '200 profile', title: 'Graph returns the profile', det: 'protocol', desc: 'Graph checks the signature, the audience and the expiry, and looks for User.Read in <code>scp</code>. Then it returns the profile.', res: { status: 200, statusText: 'OK', headers: HDR.json, json: { id: ID.user.oid, displayName: ID.user.name, userPrincipalName: ID.user.upn, jobTitle: 'Procurement Lead' } }, checks: [{ name: 'Signature (JWKS)', ok: true }, { name: 'aud = https://graph.microsoft.com', ok: true }, { name: 'scp contains User.Read', ok: true }] },
-  ],
+  ]),
 });
 
 /* ---------- 2. On-behalf-of ---------- */
+const ERP_SCOPE = `${ID.downstream.uri}/Ledger.Read`;
+/** Break-it variant: the SPA sends the Orders API a token issued for another API (audience confusion). */
+function oboVariant(ctx, steps) {
+  if (ctx.variant !== 'wrong-aud') return steps;
+  return [steps[0],
+    ...pkceSignInSteps('obo', { scope: `openid profile offline_access ${ERP_SCOPE}`, tokName: 'Terp', audName: 'Terp (aud = ERP)', short: true }),
+    { id: 'obo-call-req', from: 'browser', to: 'api', label: 'GET /orders (Bearer Terp)', title: 'SPA sends the wrong token', det: 'protocol', desc: `A bug in the SPA asked for the ERP API scope <code>${esc(ERP_SCOPE)}</code> and attaches that token to the Orders API call. <b>Terp</b> is a genuine Entra token for this user, but its <code>aud</code> is the ERP API.`, req: { method: 'GET', url: 'https://orders.contoso.com/api/orders', headers: HDR.bearer('Terp') } },
+    { id: 'obo-validate', from: 'api', to: 'api', label: 'Validate Terp', title: 'API rejects the token on aud', det: 'protocol', status: 'error', desc: 'Signature, issuer, expiry and tenant all pass. Entra really did issue this token, for this user. But <code>aud</code> names the ERP API, so the Orders API refuses it.', tok: ['Terp'],
+      why: 'Audience restriction keeps a token for one API from working at another (RFC 9700 sections 2.3 and 4.10.2). Skip it and anyone holding a token for any API in the tenant can call yours. Send a Graph token instead and most libraries fail even earlier, on the signature, because tokens for Microsoft services can use a format that doesn\'t validate as a normal JWT. Don\'t rely on that. The audience check is the one that counts.',
+      checks: [{ name: 'Signature valid (kid → JWKS key)', ok: true }, { name: `iss = ${ISS_V2}`, ok: true }, { name: `aud = ${ID.api.appId}`, ok: false, detail: `aud is ${ID.downstream.appId} (${ID.downstream.name})` }, { name: 'exp/nbf within clock skew', ok: true }, { name: 'scp contains access_as_user', ok: null, detail: 'Not reached. scp is Ledger.Read' }, { name: 'tid is an allowed tenant', ok: true }] },
+    { id: 'obo-call-res', from: 'api', to: 'browser', label: '401 invalid_token', title: 'API answers 401 and stops', det: 'protocol', desc: 'The API returns <code>401</code> with <code>error="invalid_token"</code> in <code>WWW-Authenticate</code>, as RFC 6750 section 3.1 describes. It never calls Entra for OBO and never reaches Graph.',
+      res: { status: 401, statusText: 'Unauthorized', headers: { ...HDR.json, 'WWW-Authenticate': `Bearer error="invalid_token", error_description="The audience '${ID.downstream.appId}' is invalid"` }, json: { error: 'invalid_token', error_description: `The audience '${ID.downstream.appId}' is invalid` } } },
+  ];
+}
 FLOWS.push({
   id: 'obo', group: 'standard', icon: '🔁', live: true,
   title: 'On-behalf-of (OBO)',
   subtitle: 'An API that receives a user token swaps it for a new token to call another API as the same user.',
   actors: ['user', 'browser', 'api', 'entra', 'graph'],
   layout: { user: [110, 80], browser: [110, 330], api: [450, 330], entra: [450, 90], graph: [850, 330] },
+  variants: [
+    { id: 'valid', label: 'Token for the API', desc: 'The SPA sends the Orders API a token issued for it. Validation passes and the API runs OBO for Graph.' },
+    { id: 'wrong-aud', simOnly: true, label: 'Break it: wrong audience', desc: 'Audience confusion (RFC 9700 sections 2.3 and 4.10.2). The SPA sends the Orders API a token issued for a different API. The API\'s aud check fails, it returns 401 invalid_token and never calls OBO. Simulation only.' },
+  ],
   brief: {
     what: 'OBO carries the user through a chain of APIs. Each hop trades the token it received for a <b>new token with a new audience</b>. At every hop the caller can do only what the user can do and what that API was granted, whichever is less.',
     prereqs: [`SPA has consent for <code>${esc(SCOPE.api)}</code>`, 'The middle-tier API exposes <code>access_as_user</code> and has its own credential. Use a certificate or a federated credential, and a secret only in dev', 'API has delegated <code>User.Read</code> on Graph with consent'],
@@ -104,8 +148,9 @@ FLOWS.push({
     IDT: { label: 'ID token', ...TK.idToken(ctx.t, ID.spa.appId, ctx.vars.nonce) },
     CA: { label: 'client_assertion (API proves itself)', header: { alg: 'PS256', typ: 'JWT', 'x5t#S256': randStr(43) }, payload: { aud: TOKEN_EP, iss: ID.api.appId, sub: ID.api.appId, jti: ctx.vars.jti, nbf: ctx.t, iat: ctx.t, exp: ctx.t + 300 } },
     T2: { label: 'T2: Graph token for the same user (OBO result)', ...TK.graphUser(ctx.t + 2, { appid: ID.api.appId, scp: 'User.Read', appName: ID.api.name, appidacr: '2' }) },
+    ...(ctx.variant === 'wrong-aud' ? { Terp: { label: 'Terp: user token for the ERP API (wrong audience here)', ...TK.user(ctx.t, { aud: ID.downstream.appId, scp: 'Ledger.Read', azp: ID.spa.appId }) } } : {}),
   }),
-  steps: () => [
+  steps: (ctx) => oboVariant(ctx, [
     { id: 'obo-start', from: 'user', to: 'browser', label: 'Open "My orders"', title: 'User opens a page that needs the API', det: 'human', desc: 'The SPA needs data from the Orders API, which in turn needs the user\'s Graph profile.' },
     ...pkceSignInSteps('obo', { scope: `openid profile offline_access ${SCOPE.api}`, tokName: 'Tc', audName: 'Tc (aud = API)', short: true }),
     { id: 'obo-call-req', from: 'browser', to: 'api', label: 'GET /orders (Bearer Tc)', title: 'SPA calls the middle-tier API', det: 'protocol', desc: '<b>Tc</b> has <code>aud</code> set to the Orders API, so only this API accepts it.', req: { method: 'GET', url: 'https://orders.contoso.com/api/orders', headers: HDR.bearer('Tc') } },
@@ -120,5 +165,5 @@ FLOWS.push({
     { id: 'obo-graph-req', from: 'api', to: 'graph', label: 'GET /me (Bearer T2)', title: 'API calls Graph as the user', det: 'protocol', desc: 'The call uses T2, not Tc.', req: { method: 'GET', url: `${GRAPH}/v1.0/me?$select=displayName,userPrincipalName,id`, headers: HDR.bearer('T2') } },
     { id: 'obo-graph-res', from: 'graph', to: 'api', label: '200 profile', title: 'Graph returns data', det: 'protocol', desc: 'Graph returns only what the user can see and the API\'s delegated scopes allow.', res: { status: 200, statusText: 'OK', headers: HDR.json, json: { id: ID.user.oid, displayName: ID.user.name, userPrincipalName: ID.user.upn } } },
     { id: 'obo-call-res', from: 'api', to: 'browser', label: '200 orders', title: 'API responds to the SPA', det: 'protocol', desc: 'The API combines its own data with what it got from Graph.', res: { status: 200, statusText: 'OK', headers: HDR.json, json: { me: { displayName: ID.user.name }, orders: [{ id: 'PO-10442', amount: 1240.5, status: 'Approved' }] } } },
-  ],
+  ]),
 });

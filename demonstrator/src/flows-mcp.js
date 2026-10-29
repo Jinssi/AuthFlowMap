@@ -39,12 +39,30 @@ FLOWS.push({
 });
 
 /* ---------- 12. MCP server → downstream with its own OBO ---------- */
+/** Break-it variant: the client sends a Graph token and hopes the MCP server passes it through. */
+function moVariant(ctx, steps) {
+  if (ctx.variant !== 'passthrough') return steps;
+  const i = steps.findIndex((s) => s.id === 'mo-call-req');
+  return [...steps.slice(0, i),
+    { ...steps[i], label: 'tools/call whoami (Bearer Tg)', title: 'Tool call with a Graph token', desc: 'A misconfigured or malicious client sends <b>Tg</b>, a token Entra issued for <b>Graph</b>, instead of Tmcp. A server that does token passthrough would forward it to Graph unchanged.', req: { ...steps[i].req, headers: { ...HDR.json, ...HDR.bearer('Tg'), 'Mcp-Session-Id': '{{sid}}' } } },
+    { id: 'mcp-validate', from: 'mcpserver', to: 'mcpserver', label: 'Validate Tg', title: 'MCP server rejects the token on aud', det: 'protocol', status: 'error', desc: 'It\'s a real Entra token for the same user, but it was issued for Graph. The audience check fails, so the server stops here.', tok: ['Tg'],
+      why: 'A passthrough server would skip this and send Tg to Graph. Graph would accept it, because its <code>aud</code> is Graph, and log the client app as the caller. The MCP server\'s own consent, scopes and audit trail drop out. That\'s the confused deputy the MCP spec warns about, and the reason RFC 9700 section 2.3 asks for audience-restricted tokens.',
+      checks: [{ name: 'Signature (JWKS)', ok: false, detail: 'Tokens for Microsoft services such as Graph can use a format that doesn\'t validate as a normal JWT. A token for any other API would pass here, so don\'t rely on this check' }, { name: `aud = ${ID.mcp.appId}`, ok: false, detail: `aud is ${GRAPH}. Entra issued this token for Graph, not for this server` }, { name: 'scp contains mcp.tools', ok: false, detail: 'scp is User.Read' }] },
+    { id: 'mo-call-res', from: 'mcpserver', to: 'mcpclient', label: '401 invalid_token', title: 'Server answers 401, Graph is never called', det: 'protocol', desc: 'The server answers <code>401</code> with <code>error="invalid_token"</code> and the metadata pointer, so a well-behaved client can go and get a proper token. It runs no OBO, forwards nothing to Graph and doesn\'t run the tool.',
+      why: 'The MCP authorization spec says servers MUST reject tokens that weren\'t issued for them, MUST NOT accept or transit any other tokens, and MUST answer an invalid token with HTTP 401.',
+      res: { status: 401, statusText: 'Unauthorized', headers: { ...HDR.json, 'WWW-Authenticate': `Bearer resource_metadata="${MCP_PRM_URL}", scope="${SCOPE.mcp}", error="invalid_token", error_description="The token was not issued for this resource"` }, json: { jsonrpc: '2.0', id: 3, error: { code: -32001, message: 'Unauthorized: invalid token' } } } },
+  ];
+}
 FLOWS.push({
   id: 'mcp-obo', group: 'mcp', icon: '🛠️', live: true,
   title: 'MCP tool call → downstream API (OBO)',
   subtitle: 'The model picks a tool. The MCP server then calls Graph with an OBO token of its own and keeps the client\'s token to itself.',
   actors: ['user', 'llm', 'mcpclient', 'mcpserver', 'entra', 'graph'],
   layout: { user: [110, 80], llm: [110, 380], mcpclient: [420, 230], mcpserver: [720, 380], entra: [720, 80], graph: [900, 230] },
+  variants: [
+    { id: 'bound', label: 'Token for the MCP server', desc: 'The client sends Tmcp, issued for this MCP server. The server validates it and runs its own OBO for Graph.' },
+    { id: 'passthrough', simOnly: true, label: 'Break it: token passthrough', desc: 'Token passthrough (MCP authorization spec and security best practices, RFC 9700 section 2.3). The client sends the MCP server a token issued for Graph and hopes it gets forwarded. The server checks aud, returns 401 invalid_token and never calls Graph. Simulation only.' },
+  ],
   brief: {
     what: 'When a tool needs another API, the MCP server behaves like any middle-tier API. It validates Tmcp, runs an <b>OBO exchange</b> for a token to the downstream API, and calls it. The model only chooses <i>whether</i> to call the tool. Entra and the server enforce identity, scopes and consent, and they do it the same way every time.',
     prereqs: ['Everything from the MCP authorization tab. The client already holds Tmcp', 'The MCP server app has a credential and the delegated permission Graph User.Read', 'The host asks the user to approve tool calls'],
@@ -54,8 +72,9 @@ FLOWS.push({
     Tmcp: MCP_TOKEN(ctx),
     CA: { label: 'client_assertion (MCP server proves itself)', header: { alg: 'PS256', typ: 'JWT', 'x5t#S256': randStr(43) }, payload: { aud: TOKEN_EP, iss: ID.mcp.appId, sub: ID.mcp.appId, jti: ctx.vars.jti, nbf: ctx.t, iat: ctx.t, exp: ctx.t + 300 } },
     T2: { label: 'T2: MCP server\'s OBO token for Graph', ...TK.graphUser(ctx.t + 3, { appid: ID.mcp.appId, scp: 'User.Read', appName: ID.mcp.name, appidacr: '2' }) },
+    ...(ctx.variant === 'passthrough' ? { Tg: { label: 'Tg: the client\'s user token for Graph (wrong audience here)', ...TK.graphUser(ctx.t, { appid: ID.spa.appId, scp: 'User.Read', appName: ID.spa.name, appidacr: '0' }) } } : {}),
   }),
-  steps: () => [
+  steps: (ctx) => moVariant(ctx, [
     { id: 'mo-ask', from: 'user', to: 'mcpclient', label: '"Who am I in Contoso?"', title: 'User asks a question', det: 'human', desc: '' },
     { id: 'mo-plan-req', from: 'mcpclient', to: 'llm', label: 'Prompt + tool catalogue', title: 'Host sends the prompt and tools to the model', det: 'protocol', desc: 'The model sees tool names and descriptions. It <b>never sees a token</b>.' },
     { id: 'mo-plan-res', from: 'llm', to: 'mcpclient', label: 'tool_call: whoami', title: 'Model decides to call a tool', det: 'ai', desc: 'Run it again and the model might choose differently. Nothing it decides grants access.' },
@@ -71,7 +90,7 @@ FLOWS.push({
     { id: 'mo-final-req', from: 'mcpclient', to: 'llm', label: 'Tool output', title: 'Tool output goes to the model', det: 'protocol', desc: 'The host hands the tool output to the model, which should treat it as untrusted.' },
     { id: 'mo-final-res', from: 'llm', to: 'mcpclient', label: 'Answer', title: 'Model writes the answer', det: 'ai', desc: '' },
     { id: 'mo-show', from: 'mcpclient', to: 'user', label: `"You are ${ID.user.name}"`, title: 'Answer shown', det: 'protocol', desc: '' },
-  ],
+  ]),
 });
 
 /* ---------- 13. Multi-agent chain ---------- */

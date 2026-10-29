@@ -7,7 +7,8 @@ import express from 'express';
 import { buildConfig, healthView, loadEnvFile, INDEX_HTML } from './config.js';
 import { createEntra } from './entra.js';
 import { createValidator } from './validate.js';
-import { TraceStore, isValidRunId } from './trace.js';
+import { TraceStore } from './trace.js';
+import { RateLimiter, DEFAULT_LIMITS } from './limits.js';
 import { errorMessage } from './httpUtil.js';
 import { runClientCredentials } from './flows/clientCredentials.js';
 import { runDeviceCode } from './flows/deviceCode.js';
@@ -21,6 +22,8 @@ import { mountWebApp } from './flows/webApp.js';
 import { mountMcp } from './mcp/server.js';
 
 const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
+// Flows whose requests come from the browser (X-Run-Id header). Their runs start with POST /api/runs.
+export const BROWSER_TRACE_FLOWS = new Set(['obo', 'step-up', 'agent-obo', 'mcp', 'web-app']);
 
 function callbackPage(nonce) {
   return `<!doctype html>
@@ -46,10 +49,12 @@ function callbackPage(nonce) {
  * @param {Function} [opts.jwks] jose key resolver (tests inject a local JWKS)
  * @param {Function} [opts.sleep] device code polling sleep
  * @param {Function} [opts.log] one-line logger
+ * @param {object} [opts.limits] overrides for DEFAULT_LIMITS (runsPerMinute, maxConcurrentFlows)
  */
 export function createApp(opts = {}) {
   const cfg = opts.cfg ?? buildConfig();
   const trace = opts.trace ?? new TraceStore({ secrets: cfg.secrets, log: opts.log });
+  const limits = { ...DEFAULT_LIMITS, ...(opts.limits ?? {}) };
   const ctx = {
     cfg,
     trace,
@@ -57,6 +62,26 @@ export function createApp(opts = {}) {
     validator: createValidator({ cfg, jwks: opts.jwks }),
     sleep: opts.sleep ?? ((ms) => new Promise((r) => { setTimeout(r, ms); })),
     now: opts.now ?? (() => Date.now()),
+  };
+  const runLimiter = new RateLimiter({ max: limits.runsPerMinute, now: ctx.now });
+
+  /**
+   * Admit a new run under the caps: run starts per minute and, for flows the server runs in the
+   * background, concurrent running flows. Sends 429 with Retry-After and returns false when over.
+   */
+  ctx.admitRun = (res, { serverFlow = false } = {}) => {
+    if (serverFlow && trace.runningCount() >= limits.maxConcurrentFlows) {
+      res.set('Retry-After', String(limits.concurrentRetryAfterSec));
+      res.status(429).json({ error: 'too_many_requests', error_description: `At most ${limits.maxConcurrentFlows} server flows can run at the same time` });
+      return false;
+    }
+    const wait = runLimiter.take();
+    if (wait > 0) {
+      res.set('Retry-After', String(wait));
+      res.status(429).json({ error: 'too_many_requests', error_description: `At most ${limits.runsPerMinute} runs can start per minute` });
+      return false;
+    }
+    return true;
   };
 
   const app = express();
@@ -113,24 +138,36 @@ export function createApp(opts = {}) {
   // ---- config / trace ----
   app.get('/api/health', (req, res) => res.json(healthView(cfg)));
 
+  // Start a run for a browser-initiated flow. The server picks the run ID and the read key.
+  app.post('/api/runs', (req, res) => {
+    const flow = req.body?.flow;
+    if (typeof flow !== 'string' || !BROWSER_TRACE_FLOWS.has(flow)) {
+      return res.status(400).json({ error: 'invalid_request', error_description: `flow must be one of ${[...BROWSER_TRACE_FLOWS].join(', ')}` });
+    }
+    if (!ctx.admitRun(res)) return undefined;
+    res.set('Cache-Control', 'no-store');
+    return res.status(201).json(trace.create(flow));
+  });
+
+  // Reading a trace needs the run's key. Unknown run and wrong key look the same (404).
   app.get('/api/trace/:runId', (req, res) => {
-    const { runId } = req.params;
-    if (!isValidRunId(runId)) return res.status(400).json({ error: 'invalid_run_id' });
-    return res.json(trace.get(runId, req.query.since));
+    res.set('Cache-Control', 'no-store');
+    const result = trace.read(req.params.runId, req.get('x-trace-key'), req.query.since);
+    if (!result) return res.status(404).json({ error: 'not_found' });
+    return res.json(result);
   });
 
   // ---- server-run flows ----
   function startServerFlow(flow, enabled, fn) {
     return (req, res) => {
-      const runId = req.body?.runId;
-      if (!isValidRunId(runId)) return res.status(400).json({ error: 'invalid_run_id', error_description: 'runId must match ^[A-Za-z0-9_-]{8,64}$' });
+      // A client-supplied runId is ignored: the server always issues a fresh one.
       const variant = fn.validate ? fn.validate(req.body) : null;
       if (variant === false) return res.status(400).json({ error: 'invalid_request', error_description: 'Invalid variant' });
       if (!enabled(variant)) return res.status(503).json({ error: 'not_configured', error_description: `Flow ${flow} is not configured in .env` });
-      if (trace.isRunning(runId)) return res.status(409).json({ error: 'run_in_progress' });
-      const run = trace.start(runId, flow);
-      run.running = true;
-      res.status(202).json({ runId });
+      if (!ctx.admitRun(res, { serverFlow: true })) return undefined;
+      const { runId, traceKey } = trace.create(flow);
+      trace.start(runId, flow).running = true;
+      res.status(202).json({ runId, traceKey });
       Promise.resolve()
         .then(() => fn(ctx, runId, variant))
         .then(() => trace.finish(runId))
@@ -154,7 +191,7 @@ export function createApp(opts = {}) {
   app.get('/api/obo/me', handleOboMe(ctx));
   app.post('/api/stepup/approve', handleStepUpApprove(ctx));
   app.post('/api/agent/obo', handleAgentObo(ctx));
-  mountMcp(app, ctx);
+  app.locals.mcp = mountMcp(app, ctx);
 
   // ---- confidential web app (server-side session) ----
   app.locals.webApp = mountWebApp(app, ctx);

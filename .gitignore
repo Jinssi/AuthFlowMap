@@ -4,3 +4,8 @@ node_modules/
 *.pfx
 *.key
 provisioning/out/
+test-results/
+playwright-report/
+
+# Local Copilot agent profile
+.github/agents/authflow-flow-author.agent.md

@@ -5,18 +5,21 @@ Deletes everything New-AuthFlowTenant.ps1 created in the test tenant.
 .DESCRIPTION
 Deletes the demo Conditional Access policies, authentication contexts, agent identities, the Agent ID
 BlueprintPrincipal and blueprint, and every app registration whose display name starts with the prefix.
-It also deletes the certificate and key files in provisioning\out. It leaves .env alone unless you pass
--RemoveEnv.
+It also deletes the certificate and key files in provisioning\out, and the generated .env at the repo root,
+because it holds client secrets for the deleted apps. Pass -KeepEnv to keep .env.
 
 .EXAMPLE
 .\Remove-AuthFlowTenant.ps1 -TenantId 00000000-0000-0000-0000-000000000000 -Prefix AuthFlowDemo
 
 .EXAMPLE
-.\Remove-AuthFlowTenant.ps1 -TenantId contoso.onmicrosoft.com -Prefix AuthFlowDemo -RemoveEnv -Confirm:$false
+.\Remove-AuthFlowTenant.ps1 -TenantId contoso.onmicrosoft.com -Prefix AuthFlowDemo -KeepEnv -Confirm:$false
 
 .NOTES
 Use a test tenant. You need Application Administrator plus Agent Identity Administrator or Agent Identity
 Developer. Conditional Access cleanup needs Conditional Access Administrator or Security Administrator.
+
+.PARAMETER KeepEnv
+Keeps the repo-root .env. By default the script deletes it.
 #>
 #Requires -Version 7
 
@@ -30,7 +33,7 @@ param(
 
     [string] $Prefix = 'AuthFlowDemo',
 
-    [switch] $RemoveEnv
+    [switch] $KeepEnv
 )
 
 Set-StrictMode -Version Latest
@@ -288,14 +291,14 @@ try {
         }
     }
 
-    if ($RemoveEnv -and (Test-Path -LiteralPath $EnvPath)) {
+    if (-not $KeepEnv -and (Test-Path -LiteralPath $EnvPath)) {
         if ($PSCmdlet.ShouldProcess($EnvPath, 'Delete repo-root .env file')) {
             Remove-Item -LiteralPath $EnvPath -Force
             Write-Success "Deleted $EnvPath"
         }
     }
     elseif (Test-Path -LiteralPath $EnvPath) {
-        Write-Host "Left $EnvPath intact. Rerun with -RemoveEnv to delete it." -ForegroundColor Yellow
+        Write-Host "Kept $EnvPath because of -KeepEnv. It still holds client secrets for the deleted apps." -ForegroundColor Yellow
     }
 
     Write-Host ''

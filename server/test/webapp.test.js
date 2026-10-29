@@ -84,14 +84,20 @@ test.after(async () => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-const trace = () => app.locals.ctx.trace;
+// Tests name runs with readable labels; login() maps each label to a server-issued run.
+const runs = new Map();
+const rid = (label) => runs.get(label)?.runId ?? label;
+const trace = () => ({ get: (label, since) => app.locals.ctx.trace.get(rid(label), since) });
+const pollTrace = async (label) => (await fetch(`${srv.base}/api/trace/${rid(label)}`, { headers: { 'x-trace-key': runs.get(label).traceKey } })).json();
 
 function setCookies(res) {
   return res.headers.getSetCookie();
 }
 
-async function login(runId, variant = 'secret') {
-  const res = await fetch(`${srv.base}/webapp/login?runId=${runId}&variant=${variant}`, { redirect: 'manual' });
+async function login(label, variant = 'secret') {
+  const run = app.locals.ctx.trace.create('web-app');
+  runs.set(label, run);
+  const res = await fetch(`${srv.base}/webapp/login?runId=${run.runId}&variant=${variant}`, { redirect: 'manual' });
   assert.equal(res.status, 302);
   const location = new URL(res.headers.get('location'));
   const bind = setCookies(res).find((c) => c.startsWith('wa_bind='));
@@ -146,7 +152,7 @@ test('login: 302 to /authorize with all params, wa_bind cookie, traced', async (
   const t = trace().get('wa-login-0001');
   assert.equal(t.done, false, 'login must not end the run');
   assert.equal(t.error, null);
-  const polled = await (await fetch(`${srv.base}/api/trace/wa-login-0001`)).json();
+  const polled = await pollTrace('wa-login-0001');
   assert.equal(polled.done, false);
   assert.equal(polled.events.length, STEPS_LOGIN.length);
   assert.deepEqual(t.events.map((e) => e.stepId), STEPS_LOGIN);
@@ -163,21 +169,29 @@ test('login: 302 to /authorize with all params, wa_bind cookie, traced', async (
 });
 
 test('login: 400 on bad variant or runId, 503 when the variant is not configured', async () => {
-  let res = await fetch(`${srv.base}/webapp/login?runId=wa-login-0002&variant=password`, { redirect: 'manual' });
+  const run2 = app.locals.ctx.trace.create('web-app').runId;
+  let res = await fetch(`${srv.base}/webapp/login?runId=${run2}&variant=password`, { redirect: 'manual' });
   assert.equal(res.status, 400);
   assert.equal((await res.json()).error, 'invalid_request');
-  res = await fetch(`${srv.base}/webapp/login?runId=bad&variant=secret`, { redirect: 'manual' });
-  assert.equal(res.status, 400);
-  assert.equal((await res.json()).error, 'invalid_run_id');
+  // Only server-issued web-app runs: not malformed, client-picked or another flow's run.
+  const foreign = app.locals.ctx.trace.create('obo').runId;
+  for (const bad of ['bad', 'client-picked-run-1', foreign]) {
+    res = await fetch(`${srv.base}/webapp/login?runId=${bad}&variant=secret`, { redirect: 'manual' });
+    assert.equal(res.status, 400, bad);
+    assert.equal((await res.json()).error, 'invalid_run_id');
+    assert.equal(setCookies(res).length, 0);
+  }
+  assert.equal(app.locals.ctx.trace.get(foreign).events.length, 0);
 
   const secretOnly = createApp({ cfg: buildConfig({ ...ENV, WEBAPP_CERT_PATH: '', WEBAPP_KEY_PATH: '' }), fetchImpl: mockFetch, log: () => {} });
   const s = await listen(secretOnly);
+  const run3 = secretOnly.locals.ctx.trace.create('web-app').runId;
   try {
-    res = await fetch(`${s.base}/webapp/login?runId=wa-login-0003&variant=certificate`, { redirect: 'manual' });
+    res = await fetch(`${s.base}/webapp/login?runId=${run3}&variant=certificate`, { redirect: 'manual' });
     assert.equal(res.status, 503);
     assert.equal((await res.json()).error, 'not_configured');
     assert.equal(setCookies(res).length, 0);
-    res = await fetch(`${s.base}/webapp/login?runId=wa-login-0003&variant=secret`, { redirect: 'manual' });
+    res = await fetch(`${s.base}/webapp/login?runId=${run3}&variant=secret`, { redirect: 'manual' });
     assert.equal(res.status, 302);
   } finally {
     await s.close();
@@ -189,12 +203,12 @@ for (const variant of ['secret', 'certificate']) {
     const runId = `wa-happy-${variant}`;
     const { state, cookie } = await login(runId, variant);
     const code = newCode();
-    const afterLogin = await (await fetch(`${srv.base}/api/trace/${runId}`)).json();
+    const afterLogin = await pollTrace(runId);
     assert.deepEqual([afterLogin.done, afterLogin.error], [false, null], 'run stays open after login');
     calls.length = 0;
     const res = await callback(`code=${encodeURIComponent(code)}&state=${state}`, cookie);
     assert.equal(res.status, 200);
-    const afterCallback = await (await fetch(`${srv.base}/api/trace/${runId}`)).json();
+    const afterCallback = await pollTrace(runId);
     assert.deepEqual([afterCallback.done, afterCallback.error], [true, null], 'callback ends the run');
     const html = await res.text();
     assert.match(html, /Signed in to the demo web app as Ada &lt;Lovelace&gt;\. The tokens stayed on the server\./);
@@ -202,7 +216,7 @@ for (const variant of ['secret', 'certificate']) {
     const nonce = /script-src 'nonce-([^']+)'/.exec(csp)[1];
     assert.ok(html.includes(`<script nonce="${nonce}">`));
     assert.match(csp, /default-src 'none'/);
-    assert.ok(html.includes(`postMessage({ type: 'authflow-webapp-done', runId: "${runId}" }, location.origin)`));
+    assert.ok(html.includes(`postMessage({ type: 'authflow-webapp-done', runId: "${rid(runId)}" }, location.origin)`));
     assert.ok(html.includes('setTimeout(window.close, 2500)'));
     assert.ok(!/src=|href=/.test(html), 'no external resources');
     const cookies = setCookies(res);
@@ -340,6 +354,26 @@ test('callback: Entra error -> error event, HTML error page, run error', async (
   assert.deepEqual(t.events.map((e) => e.stepId), [...STEPS_LOGIN, 'wa-code', 'wa-callback', 'wa-state']);
   assert.equal(t.events[4].status, 'error');
   assert.equal(t.error, 'access_denied: AADSTS65004: User declined <consent>');
+});
+
+test('callback: reflected Entra error text is escaped, token-shaped values masked, length capped', async () => {
+  const { state, cookie } = await login('wa-entraerr-2');
+  const jwt = fakeJwt({ sub: 'x' });
+  const refresh = `1.AXoA${crypto.randomBytes(120).toString('base64url')}`;
+  const desc = `<script>alert(1)</script> leaked ${jwt.raw} and refresh_token=${refresh} and Bearer ${crypto.randomBytes(30).toString('base64url')} ${'x'.repeat(2000)}`;
+  const res = await callback(`error=${encodeURIComponent(`<b>bad</b>${'e'.repeat(500)}`)}&error_description=${encodeURIComponent(desc)}&state=${state}`, cookie);
+  assert.equal(res.status, 400);
+  const html = await res.text();
+  assert.ok(!html.includes('<script>alert') && !html.includes('<b>bad'), 'reflected HTML is escaped');
+  assert.ok(html.includes('&lt;b&gt;bad&lt;/b&gt;'));
+  assert.ok(!html.includes(jwt.signature) && !html.includes(refresh.slice(10)), 'tokens masked in the page');
+  const para = /<h1>Sign-in failed<\/h1><p>(.*?)<\/p>/s.exec(html)[1];
+  assert.ok(para.length < 700, `page text capped (${para.length})`);
+  const t = trace().get('wa-entraerr-2');
+  const s = JSON.stringify(t);
+  assert.ok(!s.includes(jwt.signature) && !s.includes(refresh.slice(10)), 'tokens masked in the trace');
+  assert.ok(!s.includes('x'.repeat(400)), 'description capped in the trace');
+  assert.ok(t.error.length <= 420);
 });
 
 test('callback: nonce mismatch in the ID token fails wa-idtoken, no session', async () => {

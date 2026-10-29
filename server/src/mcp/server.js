@@ -7,6 +7,8 @@ import { readRunIdHeader, errorMessage, upstreamBody, q } from '../httpUtil.js';
 
 export const PROTOCOL_VERSION = '2025-11-25';
 const OBO_GRANT = 'urn:ietf:params:oauth:grant-type:jwt-bearer';
+const SESSION_IDLE_MS = 60 * 60 * 1000;
+const MAX_SESSIONS = 100;
 
 const WHOAMI_TOOL = {
   name: 'whoami',
@@ -30,8 +32,41 @@ export function protectedResourceMetadata(cfg) {
   };
 }
 
+/** The identity a session is bound to: tenant, user (oid, else sub) and client (azp, else appid). */
+export function sessionBinding(payload) {
+  const p = payload ?? {};
+  return { tid: String(p.tid ?? ''), sub: String(p.oid ?? p.sub ?? ''), client: String(p.azp ?? p.appid ?? '') };
+}
+
 export function mountMcp(app, ctx) {
   const { cfg, trace, entra, validator } = ctx;
+  // Mcp-Session-Id -> { tid, sub, client, lastUsed }. A session only works with tokens for the same binding.
+  const sessions = new Map();
+
+  function sweepSessions() {
+    const cutoff = ctx.now() - SESSION_IDLE_MS;
+    for (const [sid, s] of sessions) if (s.lastUsed < cutoff) sessions.delete(sid);
+  }
+
+  function newSession(payload) {
+    sweepSessions();
+    while (sessions.size >= MAX_SESSIONS) sessions.delete(sessions.keys().next().value);
+    const sid = crypto.randomUUID();
+    sessions.set(sid, { ...sessionBinding(payload), lastUsed: ctx.now() });
+    return sid;
+  }
+
+  /** null when the session may be used, else { status, message }. */
+  function checkSession(sid, payload) {
+    sweepSessions();
+    const s = sessions.get(sid);
+    if (!s) return { status: 404, message: 'Session not found: send a new initialize request' };
+    const b = sessionBinding(payload);
+    const same = b.tid === s.tid && b.sub === s.sub && b.client === s.client && b.sub !== '';
+    if (!same) return { status: 403, message: 'Forbidden: the token does not belong to this session' };
+    s.lastUsed = ctx.now();
+    return null;
+  }
 
   const prm = (req, res) => res.json(protectedResourceMetadata(cfg));
   app.get('/.well-known/oauth-protected-resource/mcp', prm);
@@ -67,6 +102,17 @@ export function mountMcp(app, ctx) {
     trace.start(runId, 'mcp');
     trace.add(runId, validationEvent('mcp-validate', 'mcpserver', v, 'MCP server validates bearer token'));
 
+    // Session binding (MCP Streamable HTTP): unknown session 404, token for another identity 403.
+    const sid = req.get('mcp-session-id');
+    const isInitialize = msg && typeof msg === 'object' && msg.method === 'initialize';
+    if (sid !== undefined && !isInitialize) {
+      const bad = checkSession(sid, v.payload);
+      if (bad) {
+        trace.finish(runId, bad.message);
+        return res.status(bad.status).json(rpcError(id, -32001, bad.message));
+      }
+    }
+
     if (!msg || typeof msg !== 'object' || Array.isArray(msg) || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') {
       trace.finish(runId, 'Invalid JSON-RPC request');
       return res.status(400).json(rpcError(id, -32600, 'Invalid Request: expected a single JSON-RPC 2.0 message'));
@@ -80,7 +126,7 @@ export function mountMcp(app, ctx) {
       }
       switch (msg.method) {
         case 'initialize': {
-          res.set('Mcp-Session-Id', crypto.randomUUID());
+          res.set('Mcp-Session-Id', newSession(v.payload));
           res.json({
             jsonrpc: '2.0', id,
             result: {
@@ -142,4 +188,6 @@ export function mountMcp(app, ctx) {
     }
     return undefined;
   });
+
+  return { sessions };
 }

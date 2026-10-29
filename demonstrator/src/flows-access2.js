@@ -34,7 +34,7 @@ FLOWS.push({
     if (v === 'passkey') {
       return [...s,
         { id: 'ph-webauthn', from: 'entra', to: 'attacker', label: 'WebAuthn challenge', title: 'Entra asks for the passkey', det: 'protocol', desc: 'Entra sends a challenge for relying party <code>login.microsoft.com</code>. The kit passes it on to the user\'s browser.', kv: { rpId: 'login.microsoft.com', challenge: '{{state}}' } },
-        { id: 'ph-origin', from: 'user', to: 'user', label: 'Origin check fails', title: 'The browser refuses to use the passkey', det: 'protocol', desc: 'The browser, not the user, compares the page origin with the passkey\'s relying party. The page is contoso-support.com, so there\'s no matching credential to use.',
+        { id: 'ph-origin', from: 'user', to: 'user', decider: 'browser', label: 'Origin check fails', title: 'The browser refuses to use the passkey', det: 'protocol', desc: 'The browser, not the user, compares the page origin with the passkey\'s relying party. The page is contoso-support.com, so there\'s no matching credential to use.',
           why: 'This check happens in code. It doesn\'t depend on the user spotting the fake domain.',
           checks: [{ name: 'Page origin matches the passkey\'s relying party', ok: false, detail: `${PHISH} is not login.microsoft.com` }, { name: 'Signed assertion produced', ok: false }] },
         { id: 'ph-nothing', from: 'attacker', to: 'attacker', label: 'Nothing to steal', title: 'The kit gets nothing usable', det: 'protocol', status: 'error', desc: 'No signature, no session cookie, no token. At most the attacker has a username.' },

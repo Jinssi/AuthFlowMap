@@ -5,6 +5,14 @@
   "scripts": {
     "build": "node demonstrator/build.mjs",
     "start": "npm --prefix server start",
-    "test": "npm --prefix server test"
+    "test": "npm --prefix server test",
+    "check:build": "node demonstrator/build.mjs --check",
+    "check:links": "node demonstrator/check-links.mjs",
+    "test:ui": "playwright test",
+    "test:all": "npm test && npm run check:build && npm run test:ui"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
+    "@playwright/test": "^1.64.1"
   }
 }

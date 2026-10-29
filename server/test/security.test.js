@@ -97,7 +97,7 @@ const post = (p, body, headers = {}) => fetch(`${srv.base}${p}`, {
 // ---------- step-up ----------
 
 test('step-up: no acrs -> 401 insufficient_claims challenge, then acrs [c1] -> 200 approved', async () => {
-  const runId = 'su-run-0001';
+  const { runId } = trace().create('step-up');
   let tok = await userToken();
   let res = await post('/api/stepup/approve', { paymentId: 'PAY-42', amount: 1250.5 }, { authorization: `Bearer ${tok}`, 'x-run-id': runId });
   assert.equal(res.status, 401);
@@ -135,15 +135,16 @@ test('step-up: no acrs -> 401 insufficient_claims challenge, then acrs [c1] -> 2
 });
 
 test('step-up: bad body -> 400, wrong audience -> 401 invalid_token', async () => {
+  const su2 = trace().create('step-up').runId;
   const tok = await userToken({ acrs: ['c1'] });
   for (const body of [{ paymentId: 'x'.repeat(65), amount: 1 }, { paymentId: 'p', amount: '1' }, { amount: 1 }]) {
     const res = await post('/api/stepup/approve', body, { authorization: `Bearer ${tok}` });
     assert.equal(res.status, 400, JSON.stringify(body));
   }
-  const res = await post('/api/stepup/approve', { paymentId: 'p', amount: 1 }, { authorization: `Bearer ${fakeJwt({ aud: 'x' }).raw}`, 'x-run-id': 'su-run-0002' });
+  const res = await post('/api/stepup/approve', { paymentId: 'p', amount: 1 }, { authorization: `Bearer ${fakeJwt({ aud: 'x' }).raw}`, 'x-run-id': su2 });
   assert.equal(res.status, 401);
   assert.equal((await res.json()).error, 'invalid_token');
-  assert.equal(trace().get('su-run-0002').done, true);
+  assert.equal(trace().get(su2).done, true);
 });
 
 // ---------- CA What If ----------
@@ -175,7 +176,6 @@ test('ca-whatif validation rejects bad enums, GUIDs, countries and unknown field
     { context: { type: 'other' } },
     { context: undefined },
     { subject: 'admin' },
-    { runId: 'bad' },
     { extra: 1 },
   ];
   for (const over of bad) assert.equal(parseWhatIfRequest(baseWhatIf(over)).ok, false, JSON.stringify(over));
@@ -192,6 +192,12 @@ test('ca-whatif validation rejects bad enums, GUIDs, countries and unknown field
   assert.equal(good.ok, true);
   assert.equal('deviceTrustType' in good.value.conditions, false);
   assert.equal(parseWhatIfRequest(baseWhatIf({ conditions: { ipAddress: '203.0.113.9' } })).ok, true);
+  // A client runId is tolerated (older pages send one) but never used.
+  for (const runId of ['bad', undefined, 'x'.repeat(500)]) {
+    const r = parseWhatIfRequest(baseWhatIf({ runId }));
+    assert.equal(r.ok, true);
+    assert.equal('runId' in r.value, false);
+  }
 });
 
 test('ca-whatif body mapping: subjects, contexts, deviceInfo, authenticationFlow, omitted fields', () => {
@@ -221,6 +227,9 @@ test('ca-whatif end to end: token, evaluate request/response traced, policies so
   const res = await post('/api/live/ca-whatif', baseWhatIf({ runId: 'wi-run-0001', conditions }));
   assert.equal(res.status, 200);
   const j = await res.json();
+  assert.notEqual(j.runId, 'wi-run-0001');
+  assert.equal(trace().has('wi-run-0001'), false);
+  assert.match(j.traceKey, /^[A-Za-z0-9_-]{43}$/);
   assert.deepEqual(j.policies.map((p) => [p.id, p.policyApplies]), [['p3', true], ['p2', true], ['p1', false]]);
   assert.deepEqual(Object.keys(j.policies[0]).sort(), ['analysisReasons', 'displayName', 'grantControls', 'id', 'policyApplies', 'sessionControls', 'state']);
   assert.deepEqual(j.policies[1].grantControls, { operator: 'OR', builtInControls: ['mfa'] });
@@ -241,7 +250,7 @@ test('ca-whatif end to end: token, evaluate request/response traced, policies so
   assert.equal(tokenCall.form.client_id, 'daemon-client-id');
   assert.equal(tokenCall.form.scope, 'https://graph.microsoft.com/.default');
 
-  const t = trace().get('wi-run-0001');
+  const t = trace().read(j.runId, j.traceKey);
   assert.equal(t.done, true);
   assert.equal(t.error, null);
   assert.deepEqual(t.events.map((e) => e.stepId), ['wi-token-req', 'wi-token-res', 'wi-eval-req', 'wi-eval-res']);
@@ -263,7 +272,7 @@ test('ca-whatif Graph 403 -> 502 with error, run finished with error', async () 
     const j = await res.json();
     assert.equal(j.error, 'Authorization_RequestDenied');
     assert.match(j.error_description, /Insufficient privileges.*Policy\.Read\.ConditionalAccess/);
-    const t = trace().get('wi-run-0002');
+    const t = trace().read(j.runId, j.traceKey);
     assert.equal(t.done, true);
     assert.match(t.error, /Authorization_RequestDenied/);
     assert.equal(t.events.at(-1).stepId, 'wi-eval-res');
@@ -278,7 +287,7 @@ test('ca-whatif Graph 403 -> 502 with error, run finished with error', async () 
 test('id-protection: detections 403 + risky users 200 still completes with ip-summary; UPNs masked', async () => {
   const res = await post('/api/live/id-protection', { runId: 'ip-run-0001' });
   assert.equal(res.status, 202);
-  const t = await waitDone(trace(), 'ip-run-0001');
+  const t = await waitDone(trace(), (await res.json()).runId);
   assert.equal(t.error, null);
   assert.deepEqual(t.events.map((e) => e.stepId), ['ip-token-req', 'ip-token-res', 'ip-det-req', 'ip-det-res', 'ip-users-req', 'ip-users-res', 'ip-summary']);
   assert.match(t.events[2].request.url, /\/identityProtection\/riskDetections\?\$top=5&\$orderby=detectedDateTime%20desc$/);

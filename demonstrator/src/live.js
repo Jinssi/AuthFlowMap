@@ -3,6 +3,11 @@
    LIVE MODE: talks to the local AuthFlow server (same origin) and to Entra ID.
    Tokens stay in memory. Everything put into trace events is masked first.
    ===================================================================== */
+// Flows the server runs itself (POST /api/live/<flow>), and browser flows whose server calls are
+// traced under a run from POST /api/runs. The server issues the run ID and the trace read key.
+const LIVE_SERVER_FLOWS = ['client-credentials', 'device-code', 'agent-autonomous', 'id-protection'];
+const LIVE_TRACE_FLOW = { obo: 'obo', 'agent-obo': 'agent-obo', 'step-up': 'step-up', 'mcp-auth': 'mcp', 'mcp-obo': 'mcp', 'web-app': 'web-app' };
+
 const Live = {
   health: null, reachable: false, runId: null, aborted: false, mcpSession: null,
 
@@ -54,7 +59,10 @@ const Live = {
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
   guard(o) { if (this.aborted || (o && o.runId !== this.runId)) throw new Error('Run was reset'); },
   async drain(emit, cursor) {
-    const r = await fetch(`/api/trace/${cursor.runId}?since=${cursor.n}`, { cache: 'no-store' });
+    if (!cursor.key) return { events: [], done: false, error: null };
+    const r = await fetch(`/api/trace/${encodeURIComponent(cursor.runId)}?since=${cursor.n}`, { cache: 'no-store', headers: { 'X-Trace-Key': cursor.key } });
+    if (r.status === 404) throw new Error('The server no longer has this run. It may have expired or the server restarted. Press Start again.');
+    if (!r.ok) throw new Error(`Trace read returned ${r.status}`);
     const j = await r.json();
     (j.events || []).forEach((e) => emit(e));
     cursor.n += (j.events || []).length;
@@ -63,13 +71,32 @@ const Live = {
   async readBody(r) { const t = await r.text(); try { return JSON.parse(t); } catch { return t; } },
   pickHeaders(r, names) { const o = {}; names.forEach((n) => { const v = r.headers.get(n); if (v) o[n] = v; }); return o; },
 
+  /** Ask the server for a run. Server flows start right away. Browser-only flows need no server run. */
+  async startRun(flowId, variant) {
+    let path, body;
+    if (LIVE_SERVER_FLOWS.includes(flowId)) { path = `/api/live/${flowId}`; body = { variant }; }
+    else if (LIVE_TRACE_FLOW[flowId]) { path = '/api/runs'; body = { flow: LIVE_TRACE_FLOW[flowId] }; }
+    else return { runId: `local_${randStr(20, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789')}`, traceKey: null };
+    const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!r.ok) {
+      const b = await this.readBody(r);
+      const wait = r.headers.get('retry-after');
+      const msg = b?.error_description || b?.error || `Server returned ${r.status}`;
+      throw new Error(r.status === 429 && wait ? `${msg}. Try again in ${wait} s.` : msg);
+    }
+    return r.json();
+  },
+
   /* ---------- entry point ---------- */
   async run(flowId, opts) {
     this.aborted = false;
-    this.runId = `run_${randStr(20, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789')}`;
-    const runId = this.runId;
+    const ticket = {};
+    this.runId = ticket;
+    const { runId, traceKey } = await this.startRun(flowId, opts.variant);
+    if (this.aborted || this.runId !== ticket) throw new Error('Run was reset');
+    this.runId = runId;
     const emit = (ev) => { if (!this.aborted && this.runId === runId) opts.emit({ ts: new Date().toISOString(), status: 'ok', ...ev }); };
-    const o = { ...opts, emit, runId, cursor: { n: 0, runId } };
+    const o = { ...opts, emit, runId, cursor: { n: 0, runId, key: traceKey } };
     switch (flowId) {
       case 'client-credentials': case 'device-code': case 'agent-autonomous': case 'id-protection': return this.runServerFlow(flowId, o);
       case 'web-app': return this.runWebApp(o);
@@ -85,9 +112,8 @@ const Live = {
     }
   },
 
+  /** The run already started in startRun(); poll its trace until it is done. */
   async runServerFlow(flowId, o) {
-    const r = await fetch(`/api/live/${flowId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId: o.runId, variant: o.variant }) });
-    if (!r.ok) { const b = await this.readBody(r); throw new Error(b?.error_description || b?.error || `Server returned ${r.status}`); }
     for (;;) {
       this.guard(o);
       const j = await this.drain((ev) => {
@@ -321,6 +347,11 @@ const Live = {
     o.emit({ stepId: 'mo-approve', from: 'mcpclient', to: 'user', label: approved ? 'Approved' : 'Denied', determinism: 'human', status: approved ? 'ok' : 'error', note: approved ? 'The presenter approved the tool call in a real dialog.' : 'The presenter denied the tool call, so no token exchange happens.' });
     if (!approved) return;
     const { r, b } = await this.mcpPost(o, { reqStep: 'mo-call-req', resStep: 'mo-call-res', labelReq: 'tools/call whoami (Bearer Tmcp)', rpc: { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'whoami', arguments: {} } }, token: s.token, session: s.session });
+    if ((r.status === 404 || r.status === 403) && s.session) {
+      // The server forgot the session (404) or it belongs to another sign-in (403): start over.
+      this.mcpSession = null;
+      throw new Error('The MCP session is no longer valid. Run the MCP authorization tab again.');
+    }
     if (!r.ok || b?.error) throw new Error(b?.error?.message || `tools/call returned ${r.status}`);
     o.emit({ stepId: 'mo-final-req', from: 'mcpclient', to: 'llm', label: 'Tool output', simulated: true });
     o.emit({ stepId: 'mo-final-res', from: 'llm', to: 'mcpclient', label: 'Answer', determinism: 'ai', simulated: true });

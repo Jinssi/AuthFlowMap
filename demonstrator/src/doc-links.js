@@ -132,5 +132,5 @@ REFERENCE.unshift({
   id: 'docs', title: 'Documentation links',
   intro: 'The public documentation behind every tab. Links open in a new window.',
   cols: ['Area', 'Documents'],
-  rows: DOC_GROUPS.map(([area, links]) => [area, links.map(([t, u]) => `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(t)}</a>`).join('<br>')]),
+  rows: DOC_GROUPS.map(([area, links]) => [area, `<ul class="tight doc-links">${links.map(([t, u]) => `<li><a href="${esc(u)}" target="_blank" rel="noopener">${esc(t)}</a></li>`).join('')}</ul>`]),
 });

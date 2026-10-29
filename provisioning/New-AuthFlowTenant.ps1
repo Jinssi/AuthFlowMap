@@ -41,6 +41,9 @@ Skips Microsoft Entra Agent ID objects.
 .PARAMETER SkipCertificate
 Skips the daemon certificate, private key and WebApp certificate upload.
 
+.PARAMETER SecretLifetimeDays
+How many days the client secrets stay valid. The default is 30. Use 1 through 180.
+
 .NOTES
 Use a test tenant. You need Application Administrator plus Agent Identity Administrator or Agent Identity
 Developer. Granting admin consent may also need Global Administrator. Conditional Access needs Entra ID
@@ -69,7 +72,10 @@ param(
 
     [switch] $SkipAgentId,
 
-    [switch] $SkipCertificate
+    [switch] $SkipCertificate,
+
+    [ValidateRange(1, 180)]
+    [int] $SecretLifetimeDays = 30
 )
 
 Set-StrictMode -Version Latest
@@ -440,7 +446,7 @@ function Set-ApiApplication {
 function Reset-AppPassword {
     param(
         [Parameter(Mandatory)] $Application,
-        [int] $Days = 30,
+        [Parameter(Mandatory)][int] $Days,
         [hashtable] $Headers = @{}
     )
 
@@ -875,8 +881,10 @@ try {
     }
 
     $graphWebAppScopes = Get-DelegatedScopeResourceAccess -ResourceServicePrincipal $graphSp -ScopeValues @('openid', 'profile', 'offline_access', 'User.Read')
+    # UserAuthenticationMethod.Read is kept: the live AiTM tab (live.js runMethods) reads GET /me/authentication/methods.
     $graphOpenIdScopes = Get-DelegatedScopeResourceAccess -ResourceServicePrincipal $graphSp -ScopeValues @('openid', 'profile', 'offline_access', 'User.Read', 'UserAuthenticationMethod.Read')
     $graphUserReadScope = Get-DelegatedScopeResourceAccess -ResourceServicePrincipal $graphSp -ScopeValues @('User.Read')
+    # User.Read.All is kept: client-credentials and agent-autonomous call GET /users?$top=1 app-only, and the tabs show this role.
     $graphUserReadAllRole = Get-AppRoleResourceAccess -ResourceServicePrincipal $graphSp -RoleValue 'User.Read.All'
     $graphPolicyReadConditionalAccessRole = Get-AppRoleResourceAccess -ResourceServicePrincipal $graphSp -RoleValue 'Policy.Read.ConditionalAccess'
     $graphIdentityRiskEventReadAllRole = Get-AppRoleResourceAccess -ResourceServicePrincipal $graphSp -RoleValue 'IdentityRiskEvent.Read.All'
@@ -950,10 +958,10 @@ try {
     $mcpSp = Ensure-ServicePrincipal -AppId $mcpApp.appId -DisplayName $mcpApp.displayName
 
     Write-Step 'Creating short-lived client secrets'
-    $webAppSecret = Reset-AppPassword -Application $webApp
-    $apiSecret = Reset-AppPassword -Application $apiApp
-    $daemonSecret = Reset-AppPassword -Application $daemonApp
-    $mcpSecret = Reset-AppPassword -Application $mcpApp
+    $webAppSecret = Reset-AppPassword -Application $webApp -Days $SecretLifetimeDays
+    $apiSecret = Reset-AppPassword -Application $apiApp -Days $SecretLifetimeDays
+    $daemonSecret = Reset-AppPassword -Application $daemonApp -Days $SecretLifetimeDays
+    $mcpSecret = Reset-AppPassword -Application $mcpApp -Days $SecretLifetimeDays
 
     $daemonCertPath = ''
     $daemonKeyPath = ''
@@ -1003,7 +1011,7 @@ try {
             $blueprintApp = $blueprintConfig.Application
             $blueprintScopeId = $blueprintConfig.ScopeId
 
-            $blueprintSecret = Reset-AppPassword -Application $blueprintApp -Headers $agentHeaders
+            $blueprintSecret = Reset-AppPassword -Application $blueprintApp -Days $SecretLifetimeDays -Headers $agentHeaders
             $blueprintPrincipal = Ensure-BlueprintPrincipal -BlueprintAppId $blueprintApp.appId
             $agentIdentity = Ensure-AgentIdentity -DisplayName "$Prefix-Agent-1" -BlueprintAppId $blueprintApp.appId -SponsorUserId $currentUser.id
 

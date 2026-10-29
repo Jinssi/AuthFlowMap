@@ -28,6 +28,20 @@ const ID = {
   search: { name: 'Contoso search service', host: 'https://contoso-search.search.windows.net', miOid: '7d6c5b4a-3928-4f17-a6e5-d4c3b2a19f80', kb: 'hr-policies-kb', api: '2026-08-01-preview' },
   foundry: { name: 'Contoso policy assistant', project: 'https://contoso-ai.services.ai.azure.com/api/projects/contoso-hr', miOid: '4e5f6a7b-8c9d-4e0f-a1b2-c3d4e5f6a7b8' },
   groups: { procurement: '1f2e3d4c-5b6a-4978-8695-a4b3c2d1e0f9', allStaff: '9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d', hr: '5d4c3b2a-1908-4f7e-b6d5-c4b3a2918f70' },
+  // External users tab. Fabrikam is the partner's home tenant, Contoso hosts Fabric. Every ID is made up.
+  partner: {
+    tenantName: 'Fabrikam', domain: 'fabrikam.com', tid: '7e3d9a41-2c6b-4f85-9a1e-5d0c8b2f6a37',
+    user: { name: 'Adele Vance', upn: 'adele@fabrikam.com', homeOid: 'c2a7e9d4-6b1f-4e38-8d5a-1f9c3b7e2a60' },
+    guestOid: '0b8e4f2a-9d6c-4a17-b3e5-7c2d1a9f8e44',
+    localUpn: 'adele.vance.ext@contoso.com', localOid: 'e4f1a8c3-5b2d-4c96-a7e0-3d9b6f2c1a85',
+  },
+  fabric: {
+    name: 'Sales analytics workspace', app: 'https://app.powerbi.com', aud: 'https://analysis.windows.net/powerbi/api',
+    group: 'Fabric Sales Viewers', groupId: 'a6d2c9e1-4f7b-4b30-8e5c-9a1d3f6b2c78',
+    // Made up. The real Power BI client app ID isn't shown on purpose.
+    clientId: 'd8b1e5a2-7c4f-4e09-9a3b-2f6d1c8e5b47',
+  },
+  scim: { name: 'Contoso SCIM connector', appId: '3f6e2b9d-8a1c-4d57-b0e4-6c9a2d7f1e53', spOid: '9c4b7e2a-1d8f-4a63-85b0-2e7f3c9a6d14' },
   graphAppId: '00000003-0000-0000-c000-000000000000',
   port: 5100,
 };

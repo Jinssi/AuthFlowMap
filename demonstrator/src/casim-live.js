@@ -28,16 +28,16 @@ function casRenderLive(s) {
   const box = $('#casLive'); if (!box) return;
   const ready = APP.mode === 'live' && Live.ready('ca-sim');
   if (!ready) {
-    box.innerHTML = `<h3 style="margin-top:0">Your tenant</h3><p class="muted" style="margin:0">${APP.mode === 'live' ? 'The server has no What If configuration. Provisioning writes DEMO_USER_ID and grants the daemon Policy.Read.ConditionalAccess.' : 'Switch to Live to send these same conditions to Graph\'s What If API and see what your real policies decide.'}</p>`;
+    box.innerHTML = `<h2 class="h3" style="margin-top:0">Your tenant</h2><p class="muted" style="margin:0">${APP.mode === 'live' ? 'The server has no What If configuration. Provisioning writes DEMO_USER_ID and grants the daemon Policy.Read.ConditionalAccess.' : 'Switch to Live to send these same conditions to Graph\'s What If API and see what your real policies decide.'}</p>`;
     return;
   }
   const req = casBuildRequest(s), key = JSON.stringify(req);
   const shown = casLast && casLast.key === key ? casLast : null;
   const subjNote = s.subject === 'admin' || s.subject === 'guest' ? `<div class="notice" style="margin:8px 0">What If runs as the demo user. The ${s.subject} choice only changes the offline model.</div>` : '';
-  box.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><h3 style="margin:0">Your tenant, via Graph What If</h3>
-      <button class="btn primary sm" id="casLiveBtn">Evaluate in my tenant</button></div>${subjNote}
+  box.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><h2 class="h3" style="margin:0">Your tenant, via Graph What If</h2>
+      <button type="button" class="btn primary sm" id="casLiveBtn">Evaluate in my tenant</button></div>${subjNote}
     <details style="margin-top:8px"><summary class="soft" style="cursor:pointer">Request that will be sent</summary><pre class="http">${jsonHtml(req)}</pre></details>
-    <div id="casLiveOut">${shown ? shown.html : ''}</div>`;
+    <div id="casLiveOut" aria-live="polite">${shown ? shown.html : ''}</div>`;
 }
 
 async function casRunLive(s) {
@@ -45,7 +45,7 @@ async function casRunLive(s) {
   out.innerHTML = '<p class="muted">Asking Graph…</p>';
   const req = casBuildRequest(s), key = JSON.stringify(req);
   try {
-    const r = await fetch('/api/live/ca-whatif', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId: `run_${randStr(20, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789')}`, ...req }) });
+    const r = await fetch('/api/live/ca-whatif', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(req) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error_description || j.error || `HTTP ${r.status}`);
     const pols = j.policies || [];

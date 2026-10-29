@@ -3,6 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Interactive map of OAuth 2.0, OIDC, Conditional Access, Microsoft Entra Agent ID and MCP authorization, one HTTP request at a time.">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#1b1d2b">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5l-8-3Z' fill='%231b1d2b' stroke='%234ef2d6' stroke-width='1.8'/%3E%3Cpath d='m8.5 12 2.5 2.5 4.5-5' fill='none' stroke='%234ef2d6' stroke-width='1.8'/%3E%3C/svg%3E">
 <title>AuthFlowMap: identity, delegation and agent authentication, one request at a time</title>
 <script>
   (() => {
@@ -18,33 +22,35 @@
 </style>
 </head>
 <body>
+<a class="skip-link" href="#main" id="skipLink">Skip to content</a>
 <header class="topbar">
   <div class="brand">
-    <button type="button" class="icon-btn" id="navBtn" title="Show or hide the side menu, key N" aria-label="Toggle navigation">☰</button>
+    <button type="button" class="icon-btn" id="navBtn" title="Show or hide the side menu, key N" aria-label="Side menu" aria-controls="nav" aria-expanded="true" aria-keyshortcuts="N"><span aria-hidden="true">☰</span></button>
     <div class="brand-mark" aria-hidden="true">
       <svg viewBox="0 0 24 24" width="22" height="22"><path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5l-8-3Z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m8.5 12 2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
     </div>
-    <div>
-      <div class="brand-title"><span class="tag">&lt;</span>AuthFlowMap<span class="tag">/&gt;</span></div>
+    <div class="brand-text">
+      <div class="brand-title"><span class="tag" aria-hidden="true">&lt;</span>AuthFlowMap<span class="tag" aria-hidden="true">/&gt;</span></div>
       <div class="brand-sub" id="brandSub">Identity, delegation and agent sign-in, one request at a time</div>
     </div>
   </div>
   <div class="topbar-right">
     <div class="mode-switch" role="radiogroup" aria-label="Mode">
-      <button type="button" role="radio" data-mode="sim" aria-checked="true" class="on">Simulated</button>
-      <button type="button" role="radio" data-mode="live" aria-checked="false" id="liveBtn">Live</button>
+      <button type="button" role="radio" data-mode="sim" aria-checked="true" tabindex="0" class="on">Simulated</button>
+      <button type="button" role="radio" data-mode="live" aria-checked="false" tabindex="-1" id="liveBtn">Live</button>
     </div>
-    <span class="live-status" id="liveStatus" title="Live mode status"><span class="dot"></span><span class="txt">Checking…</span></span>
-    <button type="button" class="icon-btn" id="themeBtn" title="Toggle light/dark theme" aria-label="Toggle theme">◐</button>
-    <button type="button" class="icon-btn" id="helpBtn" title="Keyboard shortcuts" aria-label="Help">?</button>
+    <span class="live-status" id="liveStatus" role="status" title="Live mode status"><span class="dot" aria-hidden="true"></span><span class="txt">Checking…</span></span>
+    <button type="button" class="icon-btn" id="themeBtn" title="Switch between the light and dark theme" aria-label="Dark theme" aria-pressed="true"><span aria-hidden="true">◐</span></button>
+    <button type="button" class="icon-btn" id="helpBtn" title="Help and keyboard shortcuts, key ?" aria-label="Help and keyboard shortcuts" aria-haspopup="dialog" aria-keyshortcuts="?"><span aria-hidden="true">?</span></button>
   </div>
 </header>
 <div class="shell">
   <nav class="sidenav" id="nav" aria-label="Demonstrator sections"></nav>
+  <div class="nav-scrim" id="navScrim" aria-hidden="true"></div>
   <main id="main" tabindex="-1"></main>
 </div>
-<div class="modal" id="helpModal" hidden>
-  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+<dialog class="modal-card" id="helpModal" aria-labelledby="helpTitle">
+  <div class="modal-body">
     <h2 id="helpTitle">Presenting with this</h2>
     <ol>
       <li>Start on <b>Architecture</b> and click through the components.</li>
@@ -53,17 +59,26 @@
       <li>Flip to <b>Live</b> to run the same flow against a real Entra test tenant. That needs the local server.</li>
     </ol>
     <table class="kbd-table">
+      <caption class="sr-only">Keyboard shortcuts</caption>
+      <thead class="sr-only"><tr><th scope="col">Key</th><th scope="col">Action</th></tr></thead>
+      <tbody>
       <tr><td><kbd>Space</kbd></td><td>Start, pause or resume</td></tr>
-      <tr><td><kbd>→</kbd> <kbd>←</kbd></td><td>Step forward or back</td></tr>
+      <tr><td><kbd>→</kbd> <kbd>←</kbd></td><td>Step forward or back. Inside tabs and option groups the arrows move between the options instead</td></tr>
       <tr><td><kbd>R</kbd></td><td>Reset flow</td></tr>
       <tr><td><kbd>V</kbd></td><td>Switch between the component and sequence views</td></tr>
-      <tr><td><kbd>N</kbd></td><td>Hide or show the side menu to give the diagram more room</td></tr>
+      <tr><td><kbd>N</kbd></td><td>Show or hide the side menu. On narrower screens it opens over the page</td></tr>
+      <tr><td><kbd>P</kbd></td><td>Presenter mode: larger text, no side menu or briefing. <kbd>Esc</kbd> also leaves it</td></tr>
+      <tr><td><kbd>+</kbd> <kbd>−</kbd> <kbd>0</kbd></td><td>Zoom the diagram in or out, or back to Fit. Fit never goes below a readable text size; drag, scroll or Ctrl with the mouse wheel to move around a larger diagram</td></tr>
       <tr><td><kbd>1</kbd> to <kbd>5</kbd></td><td>Inspector tabs</td></tr>
+      <tr><td><kbd>Tab</kbd> then <kbd>Enter</kbd></td><td>Select a component in a diagram</td></tr>
+      <tr><td><kbd>Esc</kbd></td><td>Close this dialog or the side menu</td></tr>
+      </tbody>
     </table>
     <div class="modal-actions"><button type="button" class="btn" id="helpClose">Close</button></div>
   </div>
-</div>
+</dialog>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="sr-only" id="srAnnounce" aria-live="polite" aria-atomic="true"></div>
 <script>
 /*__JS__*/
 </script>

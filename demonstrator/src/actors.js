@@ -143,6 +143,31 @@ const ACTORS = {
     desc: 'The documents, mail and chats that Copilot and Work IQ ground on. Their permissions and Purview sensitivity labels decide what comes back. Nothing in the AI layer widens them.',
     facts: ['The semantic index respects existing permissions', 'An encrypted item needs both VIEW and EXTRACT usage rights before Copilot returns it', 'A site shared with everyone in the company is visible to everyone\'s Copilot'],
   },
+  partner: {
+    icon: '🧑‍💼', name: ID.partner.user.name, role: `${ID.partner.tenantName} employee · external user`, zone: 'people',
+    desc: `${ID.partner.user.name} works at ${ID.partner.tenantName} and needs a report in ${ID.tenantName}'s Fabric tenant. Her account, password, MFA and leaver process all live at ${ID.partner.tenantName}.`,
+    facts: ['In B2B she always signs in at her home tenant', `${ID.tenantName} sees her through a user object of its own, with a different oid`, 'Being in a directory doesn\'t give her access to anything'],
+  },
+  owner: {
+    icon: '🗝️', name: 'Resource owner', role: `${ID.tenantName} · grants and reviews access`, zone: 'people',
+    desc: `The person or team at ${ID.tenantName} who owns the Fabric content. They decide which groups get which workspace or item roles, approve requests and review access.`,
+    facts: ['Owns the mapping from groups to Fabric roles', 'Approves access package requests', 'Has to act when a partner user leaves, unless something automates it'],
+  },
+  scimClient: {
+    icon: '🔄', name: 'SCIM connector', role: 'Provisioning client · app-only', zone: 'apps',
+    desc: 'A provisioning system, such as an HR or identity middleware, that creates users in Entra through the Microsoft Entra SCIM API. It calls with an app-only token.',
+    facts: ['Calls https://graph.microsoft.com/rp/scim', 'Creates directory users with their own credentials, not B2B links', 'Leavers only go away if the connector sends the update'],
+  },
+  homeEntra: {
+    icon: '🏠', name: `${ID.partner.tenantName} Entra ID`, role: 'Partner\'s home tenant', zone: 'identity',
+    desc: `${ID.partner.tenantName}'s own tenant. It authenticates ${ID.partner.user.name}, runs ${ID.partner.tenantName}'s Conditional Access and, with cross-tenant synchronization, pushes selected users and groups to ${ID.tenantName}.`,
+    facts: ['The only place her password and MFA are checked in B2B', 'Its leaver process ends her sign-in everywhere B2B is used', 'Configures CTS scope and attribute mappings as the source'],
+  },
+  fabric: {
+    icon: '📊', name: 'Microsoft Fabric', role: `${ID.tenantName}'s Fabric tenant`, zone: 'resources',
+    desc: `${ID.tenantName}'s Fabric and Power BI tenant. It checks its tenant settings for guests, the user's workspace or item role and the license or capacity before a report opens.`,
+    facts: ['"Guest users can access Microsoft Fabric" is a tenant setting', 'Roles go to users or security groups', 'Viewing needs Pro, PPU or a large enough capacity'],
+  },
 };
 
 const ZONES = [
@@ -153,11 +178,11 @@ const ZONES = [
   { id: 'resources', label: 'Resources', x: 950, w: 210 },
 ];
 const ARCH_POS = {
-  user: [120, 100], browser: [120, 215], pc: [120, 330], device: [120, 445], attacker: [120, 590],
-  api: [345, 100], webapp: [345, 210], daemon: [345, 320], azapp: [345, 430], workload: [345, 560],
+  user: [120, 100], browser: [120, 215], pc: [120, 330], device: [120, 445], attacker: [120, 590], partner: [120, 705], owner: [120, 820],
+  api: [345, 100], webapp: [345, 210], daemon: [345, 320], azapp: [345, 430], workload: [345, 560], scimClient: [345, 690],
   agent: [585, 110], llm: [585, 230], mcpclient: [585, 350], orchestrator: [585, 470], subagent: [585, 590], foundry: [585, 710],
-  risk: [825, 100], entra: [825, 215], intune: [825, 330], idp: [825, 470], imds: [825, 590],
-  graph: [1055, 90], mcpserver: [1055, 195], downstream: [1055, 300], arm: [1055, 405], search: [1055, 515], workiq: [1055, 620], m365: [1055, 725],
+  risk: [825, 100], entra: [825, 215], intune: [825, 330], idp: [825, 470], imds: [825, 590], homeEntra: [825, 760],
+  graph: [1055, 90], mcpserver: [1055, 195], downstream: [1055, 300], arm: [1055, 405], search: [1055, 515], workiq: [1055, 620], m365: [1055, 725], fabric: [1055, 835],
 };
 const ARCH_EDGES = [
   ['user', 'browser'], ['user', 'device'], ['browser', 'api'], ['browser', 'webapp'], ['webapp', 'entra'], ['webapp', 'graph'], ['browser', 'entra'], ['device', 'entra'],
@@ -169,6 +194,7 @@ const ARCH_EDGES = [
   ['pc', 'entra'], ['intune', 'entra'], ['risk', 'entra'], ['attacker', 'browser'],
   ['webapp', 'foundry'], ['foundry', 'llm'], ['foundry', 'entra'], ['foundry', 'search'], ['search', 'entra'], ['search', 'graph'], ['search', 'workiq'],
   ['mcpclient', 'workiq'], ['workiq', 'entra'], ['workiq', 'm365'],
+  ['partner', 'homeEntra'], ['partner', 'fabric'], ['homeEntra', 'entra'], ['owner', 'entra'], ['owner', 'graph'], ['owner', 'fabric'], ['fabric', 'entra'], ['scimClient', 'graph'],
 ];
 
 /* =====================================================================
@@ -184,7 +210,9 @@ const CLAIM_INFO = {
   azp: { d: 'Authorized party. The client app or agent identity that asked for the token. v2 tokens use this name.', key: true },
   appid: { d: 'Client app ID. v1 tokens use this name for azp.', key: true },
   azpacr: 'How the client proved itself. 0 is a public client, 1 a secret, 2 a certificate or federated credential.', appidacr: 'The v1 name for azpacr. 0 is a public client, 1 a secret, 2 a certificate or federated credential.',
-  idp: 'Identity provider that authenticated the subject.',
+  idp: { d: 'The identity provider that authenticated the subject. When it differs from iss, the user signed in at another tenant, as B2B users do. When it\'s missing, use iss.', key: true },
+  acct: { d: 'Account status in the tenant: 0 for a member, 1 for a guest. It\'s an optional claim the resource app has to ask for.', key: true },
+  unique_name: 'Sign-in name in v1 tokens, for display only. For a B2B user it usually shows the home sign-in address.',
   idtyp: { d: 'Identity type. "user" for delegated tokens, "app" for app-only. Decide user versus app from this claim and nothing else.', key: true },
   name: 'Display name of the user.', preferred_username: 'Sign-in name, for display only. Never use it for authorization.', upn: 'User principal name, in v1 tokens.',
   oid: { d: 'Object ID of the subject, whether that\'s a user, a service principal or an agent identity. Authorize on this.', key: true },
@@ -193,7 +221,7 @@ const CLAIM_INFO = {
   scp: { d: 'The delegated scopes the user consented to. Only user tokens have it.', key: true },
   roles: { d: 'Application permissions, or app roles assigned to the user.', key: true },
   amr: { d: 'How the user authenticated, as a list such as pwd and mfa. Key-based methods add values such as rsa. Run a flow in Live mode to see what your own sign-in produces.', key: true }, deviceid: { d: 'The Entra device ID. Only present when the sign-in came from a registered or joined device that proved itself, for example with a PRT.', key: true }, ipaddr: 'The IP address Entra saw at sign-in.', acr: 'Authentication context class.', acrs: { d: 'Authentication contexts the user satisfied, such as c1. An API checks it before a sensitive action and sends a claims challenge when it\'s missing.', key: true },
-  sid: 'Session ID.', wids: 'Directory role template IDs.', xms_cc: 'Client capabilities. "cp1" means the client can handle CAE claims challenges.',
+  sid: 'Session ID.', wids: { d: 'Template IDs of the directory roles the user holds right now. A PIM role only shows up here after activation and a new token.', key: true }, xms_cc: 'Client capabilities. "cp1" means the client can handle CAE claims challenges.',
   xms_ftd: 'Entra-internal. Ignore it.', xms_idrel: 'How the subject relates to the resource tenant. 1 is a member user and 7 a service principal, among others.',
   xms_act_fct: { d: 'Actor facets, meaning facts about the actor in azp. 11 is AgentIdentity and 13 is AgentIDUser. This is how an API knows an agent is calling.', key: true },
   xms_sub_fct: { d: 'Subject facets, meaning facts about the subject. 13 marks an agent\'s user account.', key: true },

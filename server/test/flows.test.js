@@ -88,8 +88,12 @@ const post = (p, body, headers = {}) => fetch(`${srv.base}${p}`, {
 test('client-credentials (secret): steps, masking, no leaks', async () => {
   const res = await post('/api/live/client-credentials', { runId: 'cc-run-0001', variant: 'secret' });
   assert.equal(res.status, 202);
-  assert.deepEqual(await res.json(), { runId: 'cc-run-0001' });
-  const t = await waitDone(trace(), 'cc-run-0001');
+  const started = await res.json();
+  assert.deepEqual(Object.keys(started).sort(), ['runId', 'traceKey']);
+  assert.notEqual(started.runId, 'cc-run-0001', 'client runId is ignored');
+  assert.match(started.runId, /^[A-Za-z0-9_-]{22}$/);
+  assert.equal(trace().has('cc-run-0001'), false);
+  const t = await waitDone(trace(), started.runId);
   assert.equal(t.error, null);
   assert.deepEqual(t.events.map((e) => e.stepId), ['cc-build-cred', 'cc-token-req', 'cc-token-res', 'cc-graph-req', 'cc-graph-res']);
   const [cred, req, resEvt, greq] = t.events;
@@ -102,7 +106,7 @@ test('client-credentials (secret): steps, masking, no leaks', async () => {
   assert.match(greq.request.headers.Authorization, /^Bearer .*\[signature redacted\]$/);
   for (const e of t.events) for (const k of ['seq', 'stepId', 'ts', 'status', 'from', 'to', 'label', 'determinism']) assert.ok(k in e, `${e.stepId}.${k}`);
   // via HTTP too
-  const viaHttp = await (await fetch(`${srv.base}/api/trace/cc-run-0001?since=3`)).json();
+  const viaHttp = await (await fetch(`${srv.base}/api/trace/${started.runId}?since=3`, { headers: { 'x-trace-key': started.traceKey } })).json();
   assert.equal(viaHttp.events.length, 2);
   assert.equal(viaHttp.done, true);
   assertNoLeaks(t);
@@ -112,8 +116,9 @@ test('client-credentials Entra error -> error event + run error', async () => {
   const bad = createApp({ cfg: buildConfig({ ...TEST_ENV, DAEMON_CLIENT_SECRET: 'wrong' }), fetchImpl: mockFetch, log: () => {} });
   const s = await listen(bad);
   try {
-    await fetch(`${s.base}/api/live/client-credentials`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"runId":"cc-bad-0001"}' });
-    const t = await waitDone(bad.locals.ctx.trace, 'cc-bad-0001');
+    const r = await fetch(`${s.base}/api/live/client-credentials`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"runId":"cc-bad-0001"}' });
+    const { runId } = await r.json();
+    const t = await waitDone(bad.locals.ctx.trace, runId);
     const last = t.events.at(-1);
     assert.equal(last.stepId, 'cc-token-res');
     assert.equal(last.status, 'error');
@@ -126,9 +131,9 @@ test('client-credentials Entra error -> error event + run error', async () => {
 
 test('device code: polls #1 and every 5th are traced, then sign-in, token, /me', async () => {
   devicePolls = 0;
-  const res = await post('/api/live/device-code', { runId: 'dc-run-0001' });
+  const res = await post('/api/live/device-code', {});
   assert.equal(res.status, 202);
-  const t = await waitDone(trace(), 'dc-run-0001');
+  const t = await waitDone(trace(), (await res.json()).runId);
   assert.equal(t.error, null);
   assert.deepEqual(t.events.map((e) => e.stepId), [
     'dc-code-req', 'dc-code-res', 'dc-show-code',
@@ -152,9 +157,9 @@ test('device code: polls #1 and every 5th are traced, then sign-in, token, /me',
 });
 
 test('agent autonomous: parent token (fmi_path) -> agent token -> graph', async () => {
-  const res = await post('/api/live/agent-autonomous', { runId: 'aa-run-0001' });
+  const res = await post('/api/live/agent-autonomous', {});
   assert.equal(res.status, 202);
-  const t = await waitDone(trace(), 'aa-run-0001');
+  const t = await waitDone(trace(), (await res.json()).runId);
   assert.equal(t.error, null);
   assert.deepEqual(t.events.map((e) => e.stepId), ['aa-parent-req', 'aa-parent-res', 'aa-agent-req', 'aa-agent-res', 'aa-graph-req', 'aa-graph-res']);
   const parentReq = t.events[0].request.body;
@@ -170,12 +175,13 @@ test('agent autonomous: parent token (fmi_path) -> agent token -> graph', async 
 });
 
 test('OBO: valid user token -> validate, exchange, /me', async () => {
+  const oboRun = trace().create('obo').runId;
   calls.length = 0;
   const tok = await userToken('api-client-id', 'access_as_user');
-  const res = await fetch(`${srv.base}/api/obo/me`, { headers: { authorization: `Bearer ${tok}`, 'x-run-id': 'obo-run-0002' } });
+  const res = await fetch(`${srv.base}/api/obo/me`, { headers: { authorization: `Bearer ${tok}`, 'x-run-id': oboRun } });
   assert.equal(res.status, 200);
   assert.deepEqual(await res.json(), { me: { displayName: 'Ada Lovelace', userPrincipalName: 'ada@contoso.test', id: 'u1' } });
-  const t = trace().get('obo-run-0002');
+  const t = trace().get(oboRun);
   assert.equal(t.done, true);
   assert.deepEqual(t.events.map((e) => e.stepId), ['obo-validate', 'obo-exchange-req', 'obo-exchange-res', 'obo-graph-req', 'obo-graph-res']);
   assert.ok(t.events[0].checks.every((c) => c.ok));
@@ -211,13 +217,14 @@ test('OBO: wrong audience / missing scope / expired -> 401 with failing check ma
 });
 
 test('agent OBO: validate, parent, agent OBO, /me, answer', async () => {
+  const aoRun = trace().create('agent-obo').runId;
   calls.length = 0;
   const tok = await userToken('blueprint-app-id', 'access_as_user');
-  const res = await post('/api/agent/obo', { prompt: 'Who am I?' }, { authorization: `Bearer ${tok}`, 'x-run-id': 'ao-run-0001' });
+  const res = await post('/api/agent/obo', { prompt: 'Who am I?' }, { authorization: `Bearer ${tok}`, 'x-run-id': aoRun });
   assert.equal(res.status, 200);
   const j = await res.json();
   assert.equal(j.answer, 'Hi Ada Lovelace, I (agent identity agent-identity-app-id) read your profile on your behalf.');
-  const t = trace().get('ao-run-0001');
+  const t = trace().get(aoRun);
   assert.deepEqual(t.events.map((e) => e.stepId), ['ao-validate', 'ao-parent-req', 'ao-parent-res', 'ao-obo-req', 'ao-obo-res', 'ao-graph-req', 'ao-graph-res']);
   const sent = calls.find((c) => c.form?.requested_token_use === 'on_behalf_of').form;
   assert.equal(sent.client_id, 'agent-identity-app-id');
@@ -228,9 +235,10 @@ test('agent OBO: validate, parent, agent OBO, /me, answer', async () => {
 });
 
 test('MCP: initialize, initialized, tools/list, tools/call whoami (own OBO, token not forwarded)', async () => {
+  const mcpRun = trace().create('mcp').runId;
   calls.length = 0;
   const tok = await userToken('api://mcp-client-id', 'mcp.tools');
-  const h = { authorization: `Bearer ${tok}`, 'x-run-id': 'mcp-run-0001', accept: 'application/json, text/event-stream' };
+  const h = { authorization: `Bearer ${tok}`, 'x-run-id': mcpRun, accept: 'application/json, text/event-stream' };
 
   let res = await post('/mcp', { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 't', version: '1' } } }, h);
   assert.equal(res.status, 200);
@@ -258,7 +266,7 @@ test('MCP: initialize, initialized, tools/list, tools/call whoami (own OBO, toke
   assert.equal(obo.client_id, 'mcp-client-id');
   assert.equal(obo.scope, 'https://graph.microsoft.com/User.Read');
 
-  const t = trace().get('mcp-run-0001');
+  const t = trace().get(mcpRun);
   assert.deepEqual(
     t.events.map((e) => e.stepId).filter((s) => s !== 'mcp-validate'),
     ['mcp-obo-req', 'mcp-obo-res', 'mcp-graph-req', 'mcp-graph-res'],
@@ -272,4 +280,60 @@ test('MCP: token for the wrong audience is rejected (no token passthrough)', asy
   const res = await post('/mcp', { jsonrpc: '2.0', id: 1, method: 'tools/list' }, { authorization: `Bearer ${tok}` });
   assert.equal(res.status, 401);
   assert.match(res.headers.get('www-authenticate'), /error="invalid_token"/);
+});
+
+test('MCP session binding: unknown session 404, token for another user or client 403, same identity OK', async () => {
+  const mcpRun = trace().create('mcp').runId;
+  const init = { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 't', version: '1' } } };
+  const list = { jsonrpc: '2.0', id: 2, method: 'tools/list' };
+  const auth = (tok, sid) => ({ authorization: `Bearer ${tok}`, 'x-run-id': mcpRun, ...(sid ? { 'mcp-session-id': sid } : {}) });
+  const ada = await userToken('api://mcp-client-id', 'mcp.tools', { oid: 'oid-ada', azp: 'spa-client-id' });
+
+  let res = await post('/mcp', init, auth(ada));
+  const sid = res.headers.get('mcp-session-id');
+  assert.match(sid, /^[0-9a-f-]{36}$/);
+  assert.deepEqual(app.locals.mcp.sessions.get(sid), {
+    tid: TENANT, sub: 'oid-ada', client: 'spa-client-id', lastUsed: app.locals.mcp.sessions.get(sid).lastUsed,
+  });
+
+  // Same identity, fresh token: allowed.
+  const ada2 = await userToken('api://mcp-client-id', 'mcp.tools', { oid: 'oid-ada', azp: 'spa-client-id' });
+  res = await post('/mcp', list, auth(ada2, sid));
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).result.tools[0].name, 'whoami');
+
+  // Unknown or made-up session: 404 (MCP Streamable HTTP), client must initialize again.
+  for (const unknown of ['00000000-0000-4000-8000-000000000000', 'not-a-session']) {
+    res = await post('/mcp', list, auth(ada, unknown));
+    assert.equal(res.status, 404, unknown);
+    assert.equal((await res.json()).error.code, -32001);
+  }
+
+  // Another user or another client presenting the session ID: 403.
+  const others = [
+    await userToken('api://mcp-client-id', 'mcp.tools', { oid: 'oid-mallory', azp: 'spa-client-id' }),
+    await userToken('api://mcp-client-id', 'mcp.tools', { oid: 'oid-ada', azp: 'other-client-id' }),
+    await userToken('api://mcp-client-id', 'mcp.tools', { sub: 'sub-only', azp: 'spa-client-id' }),
+  ];
+  for (const tok of others) {
+    calls.length = 0;
+    res = await post('/mcp', { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'whoami', arguments: {} } }, auth(tok, sid));
+    assert.equal(res.status, 403);
+    assert.match((await res.json()).error.message, /does not belong to this session/);
+    assert.equal(calls.length, 0, 'no OBO exchange for a hijacked session');
+  }
+  // A bad token is still 401 before the session is looked at.
+  res = await post('/mcp', list, auth('not-a-token', sid));
+  assert.equal(res.status, 401);
+  // The original owner can still use the session.
+  res = await post('/mcp', list, auth(ada, sid));
+  assert.equal(res.status, 200);
+});
+
+test('MCP session binding uses tid + oid (else sub) + azp (else appid)', async () => {
+  const { sessionBinding } = await import('../src/mcp/server.js');
+  assert.deepEqual(sessionBinding({ tid: 't', oid: 'o', sub: 's', azp: 'a', appid: 'b' }), { tid: 't', sub: 'o', client: 'a' });
+  assert.deepEqual(sessionBinding({ tid: 't', sub: 's', appid: 'b' }), { tid: 't', sub: 's', client: 'b' });
+  assert.notDeepEqual(sessionBinding({ tid: 't1', oid: 'o', azp: 'a' }), sessionBinding({ tid: 't2', oid: 'o', azp: 'a' }));
+  assert.deepEqual(sessionBinding(null), { tid: '', sub: '', client: '' });
 });

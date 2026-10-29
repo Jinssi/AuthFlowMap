@@ -58,19 +58,25 @@ function renderCaSim(main, flow) {
       <div><h3>Anti-pattern to avoid</h3><div class="notice bad">${b.antiPattern}</div><h3>Note</h3><div class="notice">${b.verify}</div></div></div></details>
     <div class="casim-grid">
       <div class="card card-pad casim-inputs">
-        <h3 style="margin-top:0">Scenarios</h3><div class="casim-presets">${CAS_PRESETS.map((p, i) => `<button class="btn sm" data-preset="${i}">${esc(p.label)}</button>`).join('')}</div>
+        <h2 class="h3" style="margin-top:0">Scenarios</h2><div class="casim-presets" role="group" aria-label="Scenario presets">${CAS_PRESETS.map((p, i) => `<button type="button" class="btn sm" data-preset="${i}">${esc(p.label)}</button>`).join('')}</div>
         <div id="casInputs"></div>
       </div>
       <div class="casim-out">
         <div class="card card-pad verdict" id="casVerdict"></div>
         <div class="card card-pad" id="casLive"></div>
-        <div class="card card-pad"><h3 style="margin-top:0">Sample policies, offline model</h3><div id="casPolicies"></div></div>
+        <div class="card card-pad"><h2 class="h3" style="margin-top:0">Sample policies, offline model</h2><div id="casPolicies"></div></div>
       </div>
     </div>`;
+  let drawn = false;
   const draw = () => {
-    $('#casInputs').innerHTML = CAS_INPUTS.filter((i) => (i.human ? isHuman(st) : true) && (i.agent ? !isHuman(st) : true)).map((i) => `
-      <div class="seg-row"><div class="seg-label">${esc(i.label)}</div><div class="seg">${i.opts.map(([v, l]) => `<button class="${st[i.key] === v ? 'on' : ''}" data-k="${i.key}" data-v="${v}">${esc(l)}</button>`).join('')}</div></div>`).join('');
+    const box = $('#casInputs');
+    keepFocus(box, () => {
+      box.innerHTML = CAS_INPUTS.filter((i) => (i.human ? isHuman(st) : true) && (i.agent ? !isHuman(st) : true)).map((i) => `
+      <div class="seg-row"><div class="seg-label" id="seg-${i.key}">${esc(i.label)}</div><div class="seg" role="radiogroup" aria-labelledby="seg-${i.key}">${i.opts.map(([v, l]) => { const on = st[i.key] === v; return `<button type="button" role="radio" aria-checked="${on}" tabindex="${on ? 0 : -1}" class="${on ? 'on' : ''}" data-k="${i.key}" data-v="${v}">${esc(l)}</button>`; }).join('')}</div></div>`).join('');
+    }, '[role=radio][aria-checked=true]');
     const r = casEvaluate(st);
+    if (drawn) announce(`${VERDICT_TEXT[r.verdict]}${r.code ? `, ${r.code}` : ''}. ${r.experience}`);
+    drawn = true;
     $('#casVerdict').className = `card card-pad verdict v-${r.verdict}`;
     $('#casVerdict').innerHTML = `<div class="v-head"><span class="v-title">${VERDICT_TEXT[r.verdict]}</span>${r.code ? `<span class="pill warn">${r.code}</span>` : ''}</div>
       <p style="margin:6px 0 10px">${esc(r.experience)}</p>

@@ -1,7 +1,6 @@
 // Conditional Access What If: POST /identity/conditionalAccess/evaluate with the daemon's app-only token.
 import net from 'node:net';
 import { AUTH_CONTEXT_RE } from '../config.js';
-import { isValidRunId } from '../trace.js';
 import { errorMessage, upstreamBody } from '../httpUtil.js';
 import { UpstreamError } from '../entra.js';
 import { daemonGraphToken } from './daemonToken.js';
@@ -35,15 +34,15 @@ function onlyKeys(obj, allowed) {
 
 /**
  * Strict allow-list validation of the What If request body.
- * Returns { ok: true, value: { runId, subject, conditions, context } } or { ok: false, error, error_description }.
+ * Returns { ok: true, value: { subject, conditions, context } } or { ok: false, error, error_description }.
  * Optional condition fields may be omitted or null (null means "not set").
+ * A client-supplied runId is accepted for compatibility and ignored: the server issues run IDs.
  */
 export function parseWhatIfRequest(body) {
   const bad = (d) => ({ ok: false, error: 'invalid_request', error_description: d });
   if (!isPlainObject(body)) return bad('Body must be a JSON object');
   const extra = onlyKeys(body, new Set(['runId', 'subject', 'conditions', 'context']));
   if (extra) return bad(`Unknown field ${extra.slice(0, 40)}`);
-  if (!isValidRunId(body.runId)) return { ok: false, error: 'invalid_run_id', error_description: 'runId must match ^[A-Za-z0-9_-]{8,64}$' };
   if (!SUBJECTS.has(body.subject)) return bad('subject must be user, workload or agent');
 
   const rawCond = body.conditions ?? {};
@@ -80,7 +79,7 @@ export function parseWhatIfRequest(body) {
   } else {
     return bad('context.type must be app or authContext');
   }
-  return { ok: true, value: { runId: body.runId, subject: body.subject, conditions, context } };
+  return { ok: true, value: { subject: body.subject, conditions, context } };
 }
 
 export function subjectId(cfg, subject) {
@@ -141,16 +140,15 @@ export function handleCaWhatIf(ctx) {
     const parsed = parseWhatIfRequest(req.body);
     if (!parsed.ok) return res.status(400).json({ error: parsed.error, error_description: parsed.error_description });
     const input = parsed.value;
-    const { runId } = input;
     if (!cfg.daemonConfigured || !subjectId(cfg, input.subject)) {
       return res.status(503).json({
         error: 'not_configured',
         error_description: 'What If needs the daemon app (DAEMON_CLIENT_ID with a secret or certificate) and DEMO_USER_ID / DAEMON_SP_ID / AGENT_IDENTITY_SP_ID for the chosen subject',
       });
     }
-    if (trace.isRunning(runId)) return res.status(409).json({ error: 'run_in_progress' });
-    const run = trace.start(runId, 'ca-sim');
-    run.running = true;
+    if (!ctx.admitRun(res, { serverFlow: true })) return undefined;
+    const { runId, traceKey } = trace.create('ca-sim');
+    trace.start(runId, 'ca-sim').running = true;
 
     try {
       const token = await daemonGraphToken(ctx, runId, 'wi-token', { labelRes: 'App-only Graph token (Policy.Read.ConditionalAccess)' });
@@ -162,14 +160,14 @@ export function handleCaWhatIf(ctx) {
           return { policies: all.length, applying: all.filter((p) => p?.policyApplies === true).length };
         },
       });
-      res.json({ policies: summarisePolicies(json) });
+      res.json({ policies: summarisePolicies(json), runId, traceKey });
       trace.finish(runId);
     } catch (e) {
       const out = upstreamBody(e);
       if (e instanceof UpstreamError && e.status === 403) {
         out.error_description = `${String(out.error_description ?? '').replace(/\.?\s*$/, '.')} The daemon app needs the Policy.Read.ConditionalAccess application permission.`;
       }
-      res.status(502).json(out);
+      res.status(502).json({ ...out, runId, traceKey });
       trace.finish(runId, errorMessage(e));
     }
     return undefined;
