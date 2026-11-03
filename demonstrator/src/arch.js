@@ -9,7 +9,7 @@
    ===================================================================== */
 const ARCH_VIEWS = [
   { id: 'columns', label: 'Columns', desc: 'One column per zone. Every connection is drawn. Select a component to highlight its own.' },
-  { id: 'bowtie', label: 'Bow-tie', desc: 'Read it left to right. Clients and agents ask Entra for a token, Entra in the middle issues it, and resources on the right accept it. Faint dashed curves are calls made with a token. Select a component to highlight its connections.' },
+  { id: 'bowtie', label: 'Bow-tie', desc: 'Read it left to right. Clients and agents ask Entra for a token, Entra in the middle issues it, Global Secure Access checks traffic on its way, and resources on the right accept it. Faint dashed curves are calls made with a token. Select a component to highlight its connections.' },
   { id: 'hub', label: 'Hub and spoke', desc: 'Entra in the centre with the services it relies on around it. Every spoke is a token request. Faint dashed curves are calls made with a token. Select a component to highlight its connections.' },
 ];
 const ARCH_EDGE_KINDS = [
@@ -18,16 +18,17 @@ const ARCH_EDGE_KINDS = [
   { id: 'trust', label: 'Trust or signal between identity services' },
 ];
 // Clockwise from the top. Each zone sits next to the zones it talks to most, so few curves cross the hub.
-const HUB_RING = ['people', 'agents', 'resources', 'apps'];
+const HUB_RING = ['people', 'agents', 'network', 'resources', 'apps'];
 const HUB_ORDER = {
-  people: ['device', 'user', 'browser', 'attacker', 'pc', 'partner', 'owner'],
-  agents: ['agent', 'orchestrator', 'subagent', 'llm', 'mcpclient', 'foundry'],
-  resources: ['mcpserver', 'downstream', 'search', 'workiq', 'm365', 'arm', 'fabric', 'graph'],
+  people: ['device', 'user', 'browser', 'attacker', 'pc', 'byodPc', 'printer', 'kiosk', 'partner', 'owner'],
+  agents: ['agent', 'orchestrator', 'subagent', 'llm', 'mcpclient', 'foundry', 'localAgent', 'cloudPc'],
+  network: ['gsaClient', 'sse', 'connector', 'purview'],
+  resources: ['extMcp', 'genai', 'web', 'privApp', 'mcpserver', 'downstream', 'search', 'workiq', 'm365', 'arm', 'fabric', 'graph'],
   apps: ['scimClient', 'daemon', 'azapp', 'workload', 'api', 'webapp'],
   identity: ['homeEntra', 'risk', 'intune', 'imds', 'idp'],
 };
 // Resources the agents column reaches most. They sit in the bow-tie's inner right column, nearest Entra.
-const BOW_INNER = ['mcpserver', 'downstream', 'search', 'workiq'];
+const BOW_INNER = ['mcpserver', 'downstream', 'search', 'workiq', 'privApp', 'extMcp'];
 
 const archZoneOf = (id) => (ZONES.some((z) => z.id === ACTORS[id]?.zone) ? ACTORS[id].zone : 'apps');
 const archZoneLabel = (zone) => ZONES.find((z) => z.id === zone)?.label || zone;
@@ -43,14 +44,15 @@ const zoneText = (x, y, text, extra = '') => `<text class="zone-label" x="${r1(x
 
 function columnsLayout() {
   // Grow the canvas with the lowest node so every node stays inside its zone column.
-  const W = 1180, H = Math.max(780, ...Object.values(ARCH_POS).map(([, y]) => y + NODE_H / 2 + 30));
+  const W = Math.max(...ZONES.map((z) => z.x + z.w)) + 20, H = Math.max(780, ...Object.values(ARCH_POS).map(([, y]) => y + NODE_H / 2 + 30));
   const bg = ZONES.map((z) => `<rect class="zone-rect" x="${z.x}" y="20" width="${z.w}" height="${H - 30}" rx="14"/>${zoneText(z.x + z.w / 2, 44, z.label)}`).join('');
   return { W, H, pos: ARCH_POS, order: Object.keys(ARCH_POS), bg };
 }
 
 /**
- * Bow-tie: three caller columns that narrow toward Entra, Entra and its helpers in the knot,
- * and two resource columns that widen again. The wing outlines are fitted around the nodes.
+ * Bow-tie: three caller columns that narrow toward Entra, Entra and its helpers in the knot, then
+ * Global Secure Access, which checks tunnel tokens in front of the resources, and two resource columns.
+ * The wing outlines are fitted around the nodes.
  */
 function bowtieLayout() {
   const STEP = 110, MIN_GAP = NODE_H + 22, PAD = 14, LABEL = 24, HEAD = 40;
@@ -59,10 +61,11 @@ function bowtieLayout() {
     { ids: archZoneIds('people'), x: 100, spread: 1, label: archZoneLabel('people') },
     { ids: archZoneIds('apps'), x: 310, spread: 0.8, label: archZoneLabel('apps') },
     { ids: archZoneIds('agents'), x: 520, spread: 0.62, label: archZoneLabel('agents') },
-    { ids: res.filter((id) => BOW_INNER.includes(id)), x: 1000, spread: 0.62 },
-    { ids: res.filter((id) => !BOW_INNER.includes(id)), x: 1210, spread: 1, label: archZoneLabel('resources') },
+    { ids: archZoneIds('network', HUB_ORDER.network), x: 1000, spread: 0.4, label: archZoneLabel('network') },
+    { ids: res.filter((id) => BOW_INNER.includes(id)), x: 1210, spread: 0.62 },
+    { ids: res.filter((id) => !BOW_INNER.includes(id)), x: 1420, spread: 1, label: archZoneLabel('resources') },
   ];
-  const KNOT_X = 760, W = 1210 + NODE_W / 2 + 14;
+  const KNOT_X = 760, W = 1420 + NODE_W / 2 + 14;
   const full = Math.max(5 * STEP, ...cols.map((c) => (c.ids.length - 1) * STEP));
   const top = HEAD + PAD + LABEL + NODE_H / 2, cy = top + full / 2;
   const pos = {}, order = [];
@@ -98,14 +101,17 @@ function bowtieLayout() {
   };
   const kTop = Math.min(...above.map((id) => pos[id][1]), cy) - NODE_H / 2 - LABEL - PAD;
   const kBottom = Math.max(...below.map((id) => pos[id][1]), cy) + NODE_H / 2 + PAD;
+  const net = cols[3];
   const bg = [
-    wing(cols.slice(0, 3), 0), wing(cols.slice(3), 1),
+    wing(cols.slice(0, 3), 0), wing(cols.slice(4), 1),
     `<rect class="zone-rect" x="${KNOT_X - NODE_W / 2 - PAD}" y="${r1(kTop)}" width="${NODE_W + 2 * PAD}" height="${r1(kBottom - kTop)}" rx="14"/>`,
+    `<rect class="zone-rect" x="${net.x - NODE_W / 2 - PAD}" y="${r1(net.top)}" width="${NODE_W + 2 * PAD}" height="${r1(net.bottom - net.top)}" rx="14"/>`,
     zoneText(KNOT_X, kTop + LABEL - 2, archZoneLabel('identity')),
     ...cols.filter((c) => c.label).map((c) => zoneText(c.x, c.top + PAD + LABEL - 10, c.label)),
     `<text class="arch-head" x="${(cols[0].x + cols[2].x) / 2}" y="24" text-anchor="middle">Ask for tokens →</text>`,
     `<text class="arch-head" x="${KNOT_X}" y="24" text-anchor="middle">Issue tokens</text>`,
-    `<text class="arch-head" x="${(cols[3].x + cols[4].x) / 2}" y="24" text-anchor="middle">→ Accept tokens</text>`,
+    `<text class="arch-head" x="${net.x}" y="24" text-anchor="middle">Enforce on traffic</text>`,
+    `<text class="arch-head" x="${(cols[4].x + cols[5].x) / 2}" y="24" text-anchor="middle">→ Accept tokens</text>`,
   ].join('');
   for (const c of cols.slice(0, 3)) order.push(...c.ids);
   order.push(...above, 'entra', ...below);
@@ -202,8 +208,9 @@ function hubLayout() {
 
 const ARCH_LAYOUTS = { columns: columnsLayout, bowtie: bowtieLayout, hub: hubLayout };
 
-/** Edges to Entra are token requests, edges between identity services are trust or signals, the rest are calls. */
-function archEdgeKind(a, b) {
+/** Edges to Entra are token requests, edges between identity services are trust or signals, the rest are calls. An explicit kind on the edge wins. */
+function archEdgeKind(a, b, kind) {
+  if (kind) return kind;
   const ia = archZoneOf(a) === 'identity', ib = archZoneOf(b) === 'identity';
   return ia && ib ? 'trust' : ia || ib ? 'token' : 'call';
 }
@@ -232,8 +239,8 @@ function setArchView(view, user) {
   APP.archView = v.id;
   if (user) { try { localStorage.setItem('authflow-archview', v.id); } catch { /* storage blocked */ } }
   const L = ARCH_LAYOUTS[v.id](), styled = v.id !== 'columns';
-  const edges = ARCH_EDGES.filter(([a, b]) => L.pos[a] && L.pos[b]).map(([a, b]) => {
-    const k = archEdgeKind(a, b);
+  const edges = ARCH_EDGES.filter(([a, b]) => L.pos[a] && L.pos[b]).map(([a, b, kind]) => {
+    const k = archEdgeKind(a, b, kind);
     return `<path class="arch-edge${styled ? ` ${k}` : ''}" data-a="${a}" data-b="${b}" d="${archEdgePath(a, b, L, styled ? k : 'line')}"/>`;
   }).join('');
   const svg = $('#archSvg');

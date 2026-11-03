@@ -168,22 +168,91 @@ const ACTORS = {
     desc: `${ID.tenantName}'s Fabric and Power BI tenant. It checks its tenant settings for guests, the user's workspace or item role and the license or capacity before a report opens.`,
     facts: ['"Guest users can access Microsoft Fabric" is a tenant setting', 'Roles go to users or security groups', 'Viewing needs Pro, PPU or a large enough capacity'],
   },
+  // Global Secure Access: Microsoft Entra Internet Access and Private Access, Microsoft's Security Service Edge.
+  byodPc: {
+    icon: '🧳', name: 'Personal laptop', role: 'BYOD · Entra registered', zone: 'people',
+    desc: 'A contractor\'s own Windows laptop with the Global Secure Access client. Installing the client registers the device in Entra, but nobody manages it, so it can never be compliant.',
+    facts: ['Windows BYOD gets the Private Access profile only', 'Conditional Access decides per app whether an unmanaged device is enough', 'A policy that requires a compliant device blocks it'],
+  },
+  printer: {
+    icon: '🖨️', name: 'Home printer', role: 'Local subnet at home', zone: 'people',
+    desc: 'A printer, router or wireless display on the user\'s home network. With home network support it stays reachable while Private Access is connected.',
+    facts: ['The user turns on Prefer Local Network in the client', 'The admin allows local subnet bypass on the Private Access profile', 'If a home subnet overlaps a corporate one, the local path wins'],
+  },
+  gsaClient: {
+    icon: '🔀', name: 'Global Secure Access client', role: 'On the device · acquires traffic', zone: 'network',
+    desc: 'Runs on Windows, macOS, iOS and Android. It reads the traffic forwarding profiles assigned to the user and device, tunnels the traffic they cover to the Global Secure Access edge and leaves the rest alone. It gets Entra tokens for each tunnel and refreshes them before they expire.',
+    facts: ['Profiles are checked in order: Microsoft, then Private Access, then Internet Access', 'Shows the reauthentication prompt when Universal CAE asks for one', 'Advanced Diagnostics shows which profile and rule caught a connection'],
+  },
+  sse: {
+    icon: '🌍', name: 'Global Secure Access edge', role: 'Microsoft SSE · enforces policy', zone: 'network',
+    desc: 'Microsoft\'s Security Service Edge, in more than 190 edge locations. It checks the tunnel token, applies the security profile that Conditional Access linked to the user, such as web filtering, threat intelligence, TLS inspection, content filtering and prompt policies, and forwards what is allowed to the internet or to a private network connector.',
+    facts: ['Uses the users, groups, apps and Conditional Access policies already in Entra, with nothing to sync', 'Security profiles run in priority order, and a baseline profile applies to everyone', 'Universal CAE reevaluates access here, so the destination app needs no CAE support'],
+  },
+  connector: {
+    icon: '🔌', name: 'Private network connector', role: 'Next to the app · outbound only', zone: 'network',
+    desc: 'A small agent on a server inside the private network, in a connector group. It holds outbound connections to the Global Secure Access edge and opens the connection to the private app on the user\'s behalf, so no inbound firewall port is opened.',
+    facts: ['Connector groups give high availability and load balancing', 'Session affinity keeps one user and device on the same connector', 'The app sees the connector\'s address, never the laptop\'s'],
+  },
+  purview: {
+    icon: '🏷️', name: 'Microsoft Purview', role: 'Data classification · DLP', zone: 'network',
+    desc: 'Classifies content with sensitive information types and sensitivity labels and holds the DLP policies. With network content filtering, the Global Secure Access edge sends it what a user or an agent is uploading or typing, and enforces its verdict at the network layer.',
+    facts: ['Scan with Purview needs TLS inspection, so the edge can see the content', 'Covers files and text, including prompts to AI apps', 'Matches raise DLP alerts for investigation'],
+  },
+  kiosk: {
+    icon: '🖱️', name: 'Kiosk or BYOD browser', role: 'PAC file · no client installed', zone: 'people',
+    desc: 'A browser on a device that can\'t run the Global Secure Access client, such as a kiosk, a virtual desktop, Linux or a personal machine. A PAC file sends its web traffic to the Global Secure Access explicit forward proxy.',
+    facts: ['Needs the PAC file and the TLS inspection root certificate', 'The user signs in to Entra once and Conditional Access runs', 'Only browser traffic. Microsoft 365 traffic isn\'t acquired this way'],
+  },
+  localAgent: {
+    icon: '⌨️', name: 'Local AI agent', role: 'CLI agent on the laptop', zone: 'agents',
+    desc: 'An AI agent that runs on the user\'s own machine, such as GitHub Copilot CLI. It fetches web pages, calls remote MCP servers and runs tools with the user\'s network access.',
+    facts: ['Agentic Acquire tunnels all of its traffic, any port', 'Its MCP calls to remote servers show up in the traffic logs', 'Gets the same web and threat controls as the user, or tighter'],
+  },
+  cloudPc: {
+    icon: '🖥️', name: 'Agent Cloud PC', role: 'Windows 365 for Agents', zone: 'agents',
+    desc: 'A Cloud PC that an agent drives instead of a person. Intune installs the Global Secure Access client, which turns on once the agent signs in with its Entra identity.',
+    facts: ['Every outbound connection goes through the Internet Access profile', 'Web content filtering and threat protection apply to the agent session', 'Policies reach the Cloud PC through Conditional Access, as for a user'],
+  },
+  privApp: {
+    icon: '🏢', name: 'Finance ERP server', role: 'Private app · RDP on-premises', zone: 'resources',
+    desc: 'An on-premises server published through Private Access as its own app. It speaks RDP, not OAuth, and has never heard of Conditional Access or CAE. Every Zero Trust check happens before a packet reaches it.',
+    facts: ['Published as a per-app Global Secure Access app with its FQDN and port', 'Users and groups are assigned to the app like any enterprise app', 'Needs no change to support Conditional Access'],
+  },
+  web: {
+    icon: '🌎', name: 'Internet and SaaS', role: 'Websites and SaaS apps', zone: 'resources',
+    desc: 'Everything on the public internet that users and agents reach through the Internet Access profile, from news sites to SaaS apps.',
+    facts: ['Web content filtering works on categories and URLs', 'Threat intelligence blocks known malicious destinations', 'The cloud firewall covers other TCP and UDP ports'],
+  },
+  genai: {
+    icon: '✨', name: 'Generative AI app', role: 'Public AI chat service', zone: 'resources',
+    desc: 'A public AI chat service on the internet. Some are approved for company use, many aren\'t. Users paste text and upload files into them, and prompt attacks travel to them.',
+    facts: ['Network content filtering can scan uploads and prompts with Purview', 'Prompt policies block jailbreak and injection attempts', 'Custom headers can restrict a SaaS app to the company\'s own workspace'],
+  },
+  extMcp: {
+    icon: '🧰', name: 'Remote MCP server', role: 'Third-party · on the internet', zone: 'resources',
+    desc: 'An MCP server on the internet that an agent on the laptop connects to, whether IT knows about it or not.',
+    facts: ['Global Secure Access logs which MCP servers are used', 'The logs show which tools are listed and called', 'Local MCP servers on the same machine aren\'t visible'],
+  },
 };
 
 const ZONES = [
   { id: 'people', label: 'People & devices', x: 20, w: 200 },
   { id: 'apps', label: 'Apps & workloads', x: 240, w: 210 },
   { id: 'agents', label: 'Agents & AI', x: 470, w: 230 },
-  { id: 'identity', label: 'Identity plane', x: 720, w: 210 },
-  { id: 'resources', label: 'Resources', x: 950, w: 210 },
+  { id: 'network', label: 'Global Secure Access', x: 720, w: 210 },
+  { id: 'identity', label: 'Identity plane', x: 950, w: 210 },
+  { id: 'resources', label: 'Resources', x: 1180, w: 210 },
 ];
 const ARCH_POS = {
-  user: [120, 100], browser: [120, 215], pc: [120, 330], device: [120, 445], attacker: [120, 590], partner: [120, 705], owner: [120, 820],
+  user: [120, 100], browser: [120, 215], pc: [120, 330], device: [120, 445], attacker: [120, 590], partner: [120, 705], owner: [120, 820], byodPc: [120, 935], printer: [120, 1050], kiosk: [120, 1165],
   api: [345, 100], webapp: [345, 210], daemon: [345, 320], azapp: [345, 430], workload: [345, 560], scimClient: [345, 690],
-  agent: [585, 110], llm: [585, 230], mcpclient: [585, 350], orchestrator: [585, 470], subagent: [585, 590], foundry: [585, 710],
-  risk: [825, 100], entra: [825, 215], intune: [825, 330], idp: [825, 470], imds: [825, 590], homeEntra: [825, 760],
-  graph: [1055, 90], mcpserver: [1055, 195], downstream: [1055, 300], arm: [1055, 405], search: [1055, 515], workiq: [1055, 620], m365: [1055, 725], fabric: [1055, 835],
+  agent: [585, 110], llm: [585, 230], mcpclient: [585, 350], orchestrator: [585, 470], subagent: [585, 590], foundry: [585, 710], localAgent: [585, 830], cloudPc: [585, 950],
+  gsaClient: [825, 330], sse: [825, 450], connector: [825, 570], purview: [825, 690],
+  risk: [1055, 100], entra: [1055, 215], intune: [1055, 330], idp: [1055, 470], imds: [1055, 590], homeEntra: [1055, 760],
+  graph: [1285, 90], mcpserver: [1285, 195], downstream: [1285, 300], arm: [1285, 405], search: [1285, 515], workiq: [1285, 620], m365: [1285, 725], fabric: [1285, 835], privApp: [1285, 945], web: [1285, 1055], genai: [1285, 1165], extMcp: [1285, 1275],
 };
+// A third element overrides the edge kind the architecture page would infer from the zones.
 const ARCH_EDGES = [
   ['user', 'browser'], ['user', 'device'], ['browser', 'api'], ['browser', 'webapp'], ['webapp', 'entra'], ['webapp', 'graph'], ['browser', 'entra'], ['device', 'entra'],
   ['api', 'entra'], ['api', 'graph'], ['daemon', 'entra'], ['daemon', 'graph'], ['azapp', 'imds'], ['azapp', 'graph'],
@@ -195,6 +264,9 @@ const ARCH_EDGES = [
   ['webapp', 'foundry'], ['foundry', 'llm'], ['foundry', 'entra'], ['foundry', 'search'], ['search', 'entra'], ['search', 'graph'], ['search', 'workiq'],
   ['mcpclient', 'workiq'], ['workiq', 'entra'], ['workiq', 'm365'],
   ['partner', 'homeEntra'], ['partner', 'fabric'], ['homeEntra', 'entra'], ['owner', 'entra'], ['owner', 'graph'], ['owner', 'fabric'], ['fabric', 'entra'], ['scimClient', 'graph'],
+  ['pc', 'gsaClient'], ['byodPc', 'gsaClient'], ['printer', 'gsaClient'], ['localAgent', 'gsaClient'], ['cloudPc', 'gsaClient'], ['localAgent', 'llm'], ['cloudPc', 'entra'],
+  ['gsaClient', 'entra'], ['gsaClient', 'sse'], ['kiosk', 'sse'], ['kiosk', 'entra'], ['sse', 'entra', 'trust'], ['sse', 'purview', 'trust'],
+  ['sse', 'connector'], ['connector', 'privApp'], ['sse', 'web'], ['sse', 'genai'], ['sse', 'extMcp'],
 ];
 
 /* =====================================================================

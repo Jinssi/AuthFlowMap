@@ -6,12 +6,14 @@ const DET = {
   protocol: { short: 'Protocol', label: 'Deterministic protocol step', desc: 'Fixed protocol logic. The same input always gives the same output, and no AI is involved.' },
   ai: { short: 'AI decision', label: 'AI model decision', desc: 'The LLM chose this, so the next run might differ. Identity and access never hang on it. The host, Entra ID and the resource enforce those.' },
   human: { short: 'Human', label: 'Human action', desc: 'A person signs in, approves something or types a code.' },
-  policy: { short: 'Entra policy', label: 'Entra policy evaluation', desc: 'Entra ID applies your configuration before it issues anything. That means Conditional Access, consent, app role assignments, cross-tenant access and federated credential rules.' },
+  policy: { short: 'Entra policy', label: 'Entra policy evaluation', desc: 'Entra ID applies your configuration before it issues anything. That means Conditional Access, consent, app role assignments, cross-tenant access and federated credential rules. At the Global Secure Access edge, Entra also enforces the security profiles Conditional Access links to the user before traffic goes on.' },
   resource: { short: 'Resource policy', label: 'Resource authorization decision', desc: 'The API, MCP server or data service decides with its own rules, after the token is valid. That means scopes and roles, authentication context, permissions on the data, tenant settings and business limits.' },
 };
 // Components on the identity side. A policy step that involves none of them is the resource deciding, not Entra.
 const IDENTITY_SIDE = new Set(['entra', 'homeEntra', 'risk', 'intune']);
-const effDet = (s) => (s.det === 'policy' && !IDENTITY_SIDE.has(s.from) && !IDENTITY_SIDE.has(s.to) ? 'resource' : s.det || 'protocol');
+// The Global Secure Access edge enforces Entra policy on traffic. It never issues tokens, so its decisions are Authorize, not Issue.
+const POLICY_SIDE = new Set([...IDENTITY_SIDE, 'sse']);
+const effDet = (s) => (s.det === 'policy' && !POLICY_SIDE.has(s.from) && !POLICY_SIDE.has(s.to) ? 'resource' : s.det || 'protocol');
 const STAGES = {
   issue: { short: 'Issue', desc: 'Entra ID, or another identity provider, decides whether to issue a token and what goes in it.' },
   validate: { short: 'Validate', desc: 'The receiver checks the token itself: signature, issuer, audience and lifetime. A valid token proves who is calling, not what they may do.' },
@@ -28,11 +30,13 @@ function stepStages(s) {
     return decides ? ['issue'] : [];
   }
   const kinds = new Set((s.checks || []).map(checkKind));
+  // Policy steps here are the Global Secure Access edge deciding on traffic (effDet keeps 'policy' only for it).
+  const decides = s.det === 'resource' || s.det === 'policy';
   // Client-side protocol checks such as state or the passkey origin are neither token validation nor an access decision.
-  if (!kinds.has('token') && s.det !== 'resource') return [];
+  if (!kinds.has('token') && !decides) return [];
   const out = [];
   if (kinds.has('token')) out.push('validate');
-  if (kinds.has('access') || s.det === 'resource') out.push('authorize');
+  if (kinds.has('access') || decides) out.push('authorize');
   return out;
 }
 const NODE_W = 176, NODE_H = 60;

@@ -29,6 +29,15 @@ const GLOSSARY = [
   { term: 'Agent identity blueprint', re: /\bblueprints?\b/i, def: 'The template app that holds the credential and creates agent identities. It requests tokens on their behalf.' },
   { term: 'Agent identity', re: /\bagent identit(y|ies)\b/i, def: 'A separate identity per AI agent instance, created from a blueprint, so each agent shows up and can be switched off on its own.' },
   { term: 'MCP', re: /\bMCP\b/, def: 'Model Context Protocol: a standard way for an AI host to offer tools to a model. Remote MCP servers are protected with OAuth.' },
+  { term: 'Zero Trust', re: /\bZero Trust\b/, def: 'A security model that checks every request against identity, device, risk, data and network, grants the least access needed and assumes a breach has already happened.' },
+  { term: 'Global Secure Access', re: /\bGlobal Secure Access\b/, def: 'Microsoft\'s Security Service Edge: Entra Private Access and Entra Internet Access, with a client that tunnels traffic to Microsoft\'s edge, where Entra policy is enforced.' },
+  { term: 'Security Service Edge', re: /\bSecurity Service Edge\b|\bSSE\b/, def: 'Network security delivered from the cloud: secure web gateway, zero trust network access and data protection, close to the user instead of in the datacenter.' },
+  { term: 'Traffic forwarding profile', re: /\btraffic forwarding profiles?\b/i, def: 'Tells the Global Secure Access client which traffic to tunnel: Microsoft traffic, Private Access or Internet Access.' },
+  { term: 'Security profile', re: /\bsecurity profiles?\b/i, def: 'A bundle of Global Secure Access policies, such as web filtering and threat intelligence, linked to users through a Conditional Access session control.' },
+  { term: 'Private network connector', re: /\bprivate network connectors?\b/i, def: 'An agent next to a private app that connects outbound to Global Secure Access and opens connections to the app, so no inbound port is needed.' },
+  { term: 'Compliant network', re: /\bcompliant network\b/i, def: 'A Conditional Access location meaning the request came through the tenant\'s own Global Secure Access, not a list of IP ranges.' },
+  { term: 'Universal CAE', re: /\bUniversal CAE\b/, def: 'Continuous access evaluation enforced by Global Secure Access, so access to any app ends when the user or device changes state.' },
+  { term: 'TLS inspection', re: /\bTLS inspection\b/i, def: 'The edge decrypts HTTPS with a certificate the devices trust, so it can check content, not just host names.' },
 ];
 const GLOSS_MAX = 8;
 
@@ -111,6 +120,12 @@ const THREATS = [
   { name: 'Password spray and risky sign-ins', stop: 'MFA, Identity Protection risk policies and step-up for sensitive actions.', mitre: ['T1110.003'], std: [], flows: ['id-protection', 'step-up'] },
   { name: 'Prompt injection stealing credentials', stop: 'The host holds every token and secret. The model only chooses tools, so there is nothing in its context to steal.', mitre: ['AML.T0051'], std: [{ label: 'OWASP LLM01', url: 'https://genai.owasp.org/llmrisk/llm01-prompt-injection/' }], flows: ['agent-autonomous', 'agent-obo', 'agent-user', 'multi-agent', 'workiq-mcp'] },
   { name: 'Overshared data surfacing through an agent', stop: 'Answers are trimmed with the user\'s own permissions and labels, so an agent sees only what the user may see.', mitre: ['AML.T0057'], std: [{ label: 'OWASP LLM02', url: 'https://genai.owasp.org/llmrisk/llm022025-sensitive-information-disclosure/' }], flows: ['iq-oversharing', 'foundry-iq', 'workiq-mcp', 'foundry-workiq'] },
+  { name: 'Lateral movement from a VPN-connected device', stop: 'Per-app Private Access reaches one host and port per app, each behind its own Conditional Access policy, through connectors that accept no inbound connections.', mitre: ['T1021', 'T1133'], std: [], flows: ['gsa-private-access'] },
+  { name: 'Stolen token replayed from outside', stop: 'The compliant network check refuses the refresh token at Entra, and CAE resources such as Graph reject the access token.', mitre: ['T1550.001', 'T1528'], std: [RFC9700('4.10')], flows: ['gsa-compliant-network'] },
+  { name: 'Access that outlives a compromised device or account', stop: 'Universal CAE reevaluates at the Global Secure Access edge on device and risk events and closes the tunnels if Conditional Access fails.', mitre: ['T1078'], std: [], flows: ['gsa-universal-cae', 'gsa-compliant-network'] },
+  { name: 'Phishing and malicious destinations', stop: 'Threat intelligence filtering and web content filtering at the edge, for people, kiosks and agents.', mitre: ['T1566.002', 'T1189'], std: [], flows: ['gsa-internet-access', 'gsa-browser-proxy', 'gsa-agents'] },
+  { name: 'Sensitive data uploaded to AI or web apps', stop: 'TLS inspection and network content filtering with Purview block labelled or sensitive content on its way out.', mitre: ['T1567'], std: [{ label: 'OWASP LLM02', url: 'https://genai.owasp.org/llmrisk/llm022025-sensitive-information-disclosure/' }], flows: ['gsa-ai-data', 'gsa-agents'] },
+  { name: 'Jailbreak and prompt injection against AI apps and agents', stop: 'Prompt policies in the AI gateway block adversarial prompts, and agents are kept to approved destinations, so an injected instruction can\'t send data out.', mitre: ['AML.T0051', 'AML.T0054'], std: [{ label: 'OWASP LLM01', url: 'https://genai.owasp.org/llmrisk/llm01-prompt-injection/' }], flows: ['gsa-ai-data', 'gsa-agents'] },
 ];
 const mitreUrl = (id) => (id.startsWith('AML.') ? `https://atlas.mitre.org/techniques/${id}` : `https://attack.mitre.org/techniques/${id.replace('.', '/')}/`);
 const extLink = (url, label, title) => `<a href="${esc(url)}" target="_blank" rel="noopener"${title ? ` title="${esc(title)}"` : ''}>${esc(label)}</a>`;

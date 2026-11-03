@@ -10,6 +10,7 @@ const GROUPS = [
   { id: 'agent', title: 'Microsoft Entra Agent ID' },
   { id: 'mcp', title: 'MCP & multi-agent' },
   { id: 'iq', title: 'IQ and grounded agents' },
+  { id: 'gsa', title: 'Global Secure Access and Zero Trust' },
   { id: 'ref', title: 'Reference' },
 ];
 
@@ -75,16 +76,17 @@ function renderArchitecture(main) {
         <div class="arch-vp" id="archVp" role="tabpanel" aria-describedby="archDesc archPan"><span class="sr-only" id="archPan">When the diagram is larger than the space, drag or use the arrow keys to pan, and Ctrl with the mouse wheel to zoom.</span><svg class="zsvg" id="archSvg" role="group"></svg></div>
         <figcaption class="legend" style="padding:0 8px 6px"><span class="edge-legend">${ARCH_EDGE_KINDS.map((k) => `<span class="edge-key">${edgeSample(k.id)}<span class="soft">${esc(k.label)}</span></span>`).join('')}</span>${Object.keys(DET).map((d) => `${detPill(d)} <span class="soft" style="font-size:12px;margin-right:10px">${esc(DET[d].label)}</span>`).join('')}</figcaption></figure>
       <section class="arch-side card card-pad" id="archSide">
-        <h2>Three layers</h2>
+        <h2>Four layers</h2>
         <p><b>Entra ID</b> is the identity layer. It signs in people and workloads, applies policy and <i>issues signed tokens</i>.</p>
         <p><b>Clients and agents</b> <i>ask</i> for tokens. A browser app has no credential. Everything else proves itself with a certificate, a managed identity or a federated credential, then sends the token as a Bearer header.</p>
         <p><b>Resources</b> such as APIs, Graph and MCP servers <i>check</i> each token's signature, audience, expiry and scopes or roles before deciding what data to return.</p>
+        <p><b>Global Secure Access</b> sits on the network path. It tunnels traffic from devices and agents to Microsoft's edge, which <i>enforces</i> the same Conditional Access decisions on every connection, including apps that never sign in through Entra.</p>
         <div class="notice info">The AI model sits next to all of this, not inside it. It picks tools. Protocol and policy decide identity and access.</div>
       </section>
     </div>
     <h2 style="margin-top:20px">Flow catalogue</h2>
     ${learnPathHtml()}
-    ${['standard', 'access', 'agent', 'mcp', 'iq'].map((g) => `<h3>${GROUPS.find((x) => x.id === g).title}</h3><div class="grid-3">${FLOWS.filter((f) => f.group === g).map(flowCard).join('')}</div>`).join('')}
+    ${['standard', 'access', 'agent', 'mcp', 'iq', 'gsa'].map((g) => `<h3>${GROUPS.find((x) => x.id === g).title}</h3><div class="grid-3">${FLOWS.filter((f) => f.group === g).map(flowCard).join('')}</div>`).join('')}
     <h2 style="margin-top:20px">Token types at a glance</h2>
     <div class="grid-3">
       <div class="card card-pad"><b>Access token</b><p class="muted">Made for a single API, named in <code>aud</code>. Carries <code>scp</code> for delegated access or <code>roles</code> for app access. Lasts about 60 to 90 minutes. Clients shouldn't read it.</p></div>
