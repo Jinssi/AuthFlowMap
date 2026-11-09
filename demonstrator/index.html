@@ -1023,6 +1023,16 @@ const ACTORS = {
     desc: 'An MCP server on the internet that an agent on the laptop connects to, whether IT knows about it or not.',
     facts: ['Global Secure Access logs which MCP servers are used', 'The logs show which tools are listed and called', 'Local MCP servers on the same machine aren\'t visible'],
   },
+  fileShare: {
+    icon: '📁', name: 'Finance file share', role: 'Private app · SMB on-premises', zone: 'resources',
+    desc: 'A Windows file share in the datacenter, published through Private Access as its own app. It accepts Kerberos service tickets from AD, as it always has, and never sees an Entra token.',
+    facts: ['Published as a per-app Global Secure Access app on TCP 445', 'Validates the Kerberos ticket with its own key, as on the office LAN', 'Needs no change for Conditional Access or single sign-on'],
+  },
+  dc: {
+    icon: '🏰', name: 'AD domain controller', role: 'On-premises KDC · published via Private Access', zone: 'identity',
+    desc: 'Contoso\'s Active Directory domain controller, reached through Private Access like any other private app. It issues the Kerberos tickets that on-premises apps need. With Windows Hello for Business cloud Kerberos trust it swaps the partial TGT Entra issued for a full one.',
+    facts: ['Publish each domain controller\'s FQDN or IP with the Kerberos and LDAP ports, not a wildcard', 'Only the domain controllers in the connectors\' AD site need publishing', 'Cloud Kerberos trust relies on an Entra Kerberos server object in AD'],
+  },
 };
 
 const ZONES = [
@@ -1038,8 +1048,8 @@ const ARCH_POS = {
   api: [345, 100], webapp: [345, 210], daemon: [345, 320], azapp: [345, 430], workload: [345, 560], scimClient: [345, 690],
   agent: [585, 110], llm: [585, 230], mcpclient: [585, 350], orchestrator: [585, 470], subagent: [585, 590], foundry: [585, 710], localAgent: [585, 830], cloudPc: [585, 950],
   gsaClient: [825, 330], sse: [825, 450], connector: [825, 570], purview: [825, 690],
-  risk: [1055, 100], entra: [1055, 215], intune: [1055, 330], idp: [1055, 470], imds: [1055, 590], homeEntra: [1055, 760],
-  graph: [1285, 90], mcpserver: [1285, 195], downstream: [1285, 300], arm: [1285, 405], search: [1285, 515], workiq: [1285, 620], m365: [1285, 725], fabric: [1285, 835], privApp: [1285, 945], web: [1285, 1055], genai: [1285, 1165], extMcp: [1285, 1275],
+  risk: [1055, 100], entra: [1055, 215], intune: [1055, 330], idp: [1055, 470], imds: [1055, 590], homeEntra: [1055, 760], dc: [1055, 880],
+  graph: [1285, 90], mcpserver: [1285, 195], downstream: [1285, 300], arm: [1285, 405], search: [1285, 515], workiq: [1285, 620], m365: [1285, 725], fabric: [1285, 835], privApp: [1285, 945], web: [1285, 1055], genai: [1285, 1165], extMcp: [1285, 1275], fileShare: [1285, 1385],
 };
 // A third element overrides the edge kind the architecture page would infer from the zones.
 const ARCH_EDGES = [
@@ -1056,6 +1066,7 @@ const ARCH_EDGES = [
   ['pc', 'gsaClient'], ['byodPc', 'gsaClient'], ['printer', 'gsaClient'], ['localAgent', 'gsaClient'], ['cloudPc', 'gsaClient'], ['localAgent', 'llm'], ['cloudPc', 'entra'],
   ['gsaClient', 'entra'], ['gsaClient', 'sse'], ['kiosk', 'sse'], ['kiosk', 'entra'], ['sse', 'entra', 'trust'], ['sse', 'purview', 'trust'],
   ['sse', 'connector'], ['connector', 'privApp'], ['sse', 'web'], ['sse', 'genai'], ['sse', 'extMcp'],
+  ['connector', 'fileShare'], ['connector', 'dc'], ['dc', 'entra', 'trust'],
 ];
 
 /* =====================================================================
@@ -1561,6 +1572,7 @@ const CAS_INPUTS = [
   { key: 'platform', label: 'Platform', opts: [['windows', 'Windows'], ['macOS', 'macOS'], ['iOS', 'iOS'], ['android', 'Android'], ['linux', 'Linux']], human: true },
   { key: 'client', label: 'Client', opts: [['browser', 'Browser'], ['desktop', 'Desktop or mobile app'], ['legacy', 'Legacy protocol']], human: true },
   { key: 'location', label: 'Location', opts: [['office', 'Office network'], ['home', 'Home, same country'], ['abroad', 'Abroad'], ['blocked', 'Blocked country']] },
+  { key: 'network', label: 'Network path', opts: [['direct', 'Direct to the internet'], ['gsa', 'Through Global Secure Access']], human: true },
   { key: 'method', label: 'User can present', opts: [['none', 'Password only'], ['push', 'Push MFA'], ['passkey', 'Passkey or Windows Hello']], human: true },
   { key: 'flowType', label: 'Sign-in flow', opts: [['normal', 'Normal'], ['devicecode', 'Device code']], human: true },
   { key: 'signInRisk', label: 'Sign-in risk', opts: [['none', 'None'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High']], human: true },
@@ -1568,9 +1580,9 @@ const CAS_INPUTS = [
   { key: 'authContext', label: 'Sensitive action', opts: [['none', 'No'], ['c1', 'Yes, auth context c1']], human: true },
   { key: 'agentRisk', label: 'Agent risk', opts: [['none', 'None'], ['medium', 'Medium'], ['high', 'High']], agent: true },
 ];
-const CAS_DEFAULT = { subject: 'user', app: 'm365', device: 'unknown', platform: 'windows', client: 'browser', location: 'home', method: 'push', flowType: 'normal', signInRisk: 'none', userRisk: 'none', authContext: 'none', agentRisk: 'none' };
+const CAS_DEFAULT = { subject: 'user', app: 'm365', device: 'unknown', platform: 'windows', client: 'browser', location: 'home', network: 'direct', method: 'push', flowType: 'normal', signInRisk: 'none', userRisk: 'none', authContext: 'none', agentRisk: 'none' };
 const CAS_PRESETS = [
-  { label: 'Employee on a managed laptop', s: { device: 'compliant', client: 'desktop', location: 'office', method: 'passkey' } },
+  { label: 'Employee on a managed laptop', s: { device: 'compliant', client: 'desktop', location: 'office', network: 'gsa', method: 'passkey' } },
   { label: 'Employee on an unknown home PC', s: { device: 'unknown', client: 'browser', location: 'home', method: 'push' } },
   { label: 'Same PC, Outlook desktop', s: { device: 'unknown', client: 'desktop', location: 'home', method: 'push' } },
   { label: 'Traveller on a hotel VPN', s: { device: 'registered', platform: 'iOS', location: 'abroad', signInRisk: 'medium' } },
@@ -1578,7 +1590,8 @@ const CAS_PRESETS = [
   { label: 'Leaked credentials', s: { userRisk: 'high' } },
   { label: 'Admin on a personal Mac', s: { subject: 'admin', app: 'azure', device: 'registered', platform: 'macOS', method: 'push' } },
   { label: 'Device code phishing', s: { device: 'unknown', client: 'desktop', location: 'abroad', flowType: 'devicecode' } },
-  { label: 'Approve a payment', s: { app: 'finance', device: 'compliant', location: 'office', authContext: 'c1', method: 'push' } },
+  { label: 'Approve a payment', s: { app: 'finance', device: 'compliant', location: 'office', network: 'gsa', authContext: 'c1', method: 'push' } },
+  { label: 'Finance app off the tunnel', s: { app: 'finance', device: 'compliant', client: 'desktop', location: 'home', network: 'direct', method: 'passkey' } },
   { label: 'Guest partner', s: { subject: 'guest', device: 'unknown', location: 'abroad' } },
   { label: 'Agent with high risk', s: { subject: 'agent', app: 'finance', agentRisk: 'high' } },
 ];
@@ -1603,6 +1616,8 @@ const CAS_POLICIES = [
   { id: 'CA012', name: 'Sensitive actions need phishing-resistant MFA', when: (s) => (!isHuman(s) ? 'users' : s.authContext !== 'c1' ? 'authenticationContext' : null), grant: { all: ['phishingResistant'] }, session: ['Sign-in frequency every time'] },
   { id: 'CA013', name: 'Token protection for desktop apps on Windows', when: (s) => (!isHuman(s) ? 'users' : s.app !== 'm365' ? 'application' : s.platform !== 'windows' ? 'devicePlatform' : s.client !== 'desktop' ? 'clientApps' : null), grant: { all: ['boundSession'] }, session: ['Token protection for sign-in sessions'] },
   { id: 'CA014', name: 'Agents: block high-risk agent identities', when: (s) => (isHuman(s) ? 'users' : RISK[s.agentRisk] < 3 ? 'servicePrincipalRisk' : null), grant: { block: true }, preview: true },
+  { id: 'CA015', name: 'Finance app only through the compliant network', when: (s) => (!['user', 'admin'].includes(s.subject) ? 'users' : s.app !== 'finance' ? 'application' : s.network === 'gsa' ? 'compliantNetwork' : null),
+    grant: { block: true, why: 'Not in All Compliant Network locations' } },
 ];
 const CAS_CONTROLS = {
   mfa: { label: 'MFA', ok: (s) => s.method !== 'none', prompt: (s) => !(managed(s) && s.method === 'passkey') },
@@ -1617,6 +1632,7 @@ const CAS_REASONS = {
   users: 'User or identity not targeted', application: 'App not targeted', devices: 'Device excluded (already managed)', clientApps: 'Client app not targeted',
   authenticationFlow: 'Not a device code flow', signInRisk: 'Sign-in risk below threshold', userRisk: 'User risk below threshold', location: 'Location not targeted',
   authenticationContext: 'No authentication context requested', devicePlatform: 'Platform not targeted', servicePrincipalRisk: 'Agent risk below threshold',
+  compliantNetwork: 'Came through the compliant network, which the policy excludes',
 };
 
 FLOWS.push({
@@ -1625,10 +1641,10 @@ FLOWS.push({
   subtitle: 'Change the device, location, risk or app and watch the decision change for the same user.',
   actors: ['user', 'pc', 'browser', 'entra', 'intune', 'risk'],
   brief: {
-    what: 'Every sign-in is a question: who, to which app, from what device, where, how risky, and with which method. Conditional Access answers it. A policy can block, allow after grant controls such as MFA or a compliant device, or allow with session limits. Blocks always win, and every policy that applies has to be satisfied. Change one switch and the same user on the same app gets a different answer.',
-    prereqs: ['Entra ID P1 for Conditional Access, P2 for risk-based conditions', 'Devices registered in Entra and managed by Intune for device conditions', 'Named locations for the office network'],
+    what: 'Every sign-in is a question: who, to which app, from what device, where, how risky, and with which method. Conditional Access answers it. A policy can block, allow after grant controls such as MFA or a compliant device, or allow with session limits. Blocks always win, and every policy that applies has to be satisfied. Change one switch and the same user on the same app gets a different answer. <b>Network path</b> shows the compliant network check: the finance app only accepts sign-ins that come through Contoso\'s own Global Secure Access, wherever the user is.',
+    prereqs: ['Entra ID P1 for Conditional Access, P2 for risk-based conditions', 'Devices registered in Entra and managed by Intune for device conditions', 'Named locations for the office network', 'Global Secure Access with signaling for Conditional Access turned on, for the compliant network policy'],
     antiPattern: 'One giant policy with dozens of exclusions, or policies left in report-only forever. Keep policies small, named after what they do, and always exclude two break-glass accounts.',
-    verify: 'The offline engine models a sample Contoso policy set. In Live mode the same switches go to Graph\'s What If API, and you see what your tenant\'s real policies would do.',
+    verify: 'The offline engine models a sample Contoso policy set. In Live mode the same switches go to Graph\'s What If API, and you see what your tenant\'s real policies would do. What If has no input for the network path, so the compliant network only shows in the offline model.',
   },
   steps: () => [],
 });
@@ -1735,10 +1751,11 @@ FLOWS.push({
     { id: 'push', label: 'Password + push MFA', desc: 'The kit relays everything. The user approves the push and the attacker walks away with the session.' },
     { id: 'passkey', label: 'Passkey', desc: 'The passkey is bound to login.microsoft.com. On the fake site it won\'t sign anything.' },
     { id: 'bound', label: 'Push MFA + token protection', desc: 'The attacker still steals the session, but it only works on the device it was issued to.' },
+    { id: 'network', label: 'Push MFA + compliant network', desc: 'The kit relays the password and the push, but its sign-in doesn\'t come through Contoso\'s Global Secure Access, so Conditional Access refuses it.' },
   ],
   brief: {
-    what: 'MFA stops password spraying. It doesn\'t stop a phishing kit that sits between the user and the real sign-in page, because push, SMS and one-time codes can all be relayed. This tab plays the same attack three times. With push MFA the attacker gets a working session. With a <b>passkey</b> the browser refuses, because the credential only signs for the real origin. With <b>token protection</b> and a compliant-device policy, the stolen session is useless anywhere but the user\'s own device.',
-    prereqs: ['Passkeys, Windows Hello for Business or certificate-based auth registered for users', 'A Conditional Access authentication strength that requires phishing-resistant MFA', 'Token protection in Conditional Access for supported apps, and a compliant-device requirement'],
+    what: 'MFA stops password spraying. It doesn\'t stop a phishing kit that sits between the user and the real sign-in page, because push, SMS and one-time codes can all be relayed. This tab plays the same attack four times. With push MFA the attacker gets a working session. With a <b>passkey</b> the browser refuses, because the credential only signs for the real origin. With <b>token protection</b> and a compliant-device policy, the stolen session is useless anywhere but the user\'s own device. With the <b>compliant network</b> check, Entra only accepts sign-ins and token requests that came through Contoso\'s own Global Secure Access, so the kit\'s relayed sign-in fails.',
+    prereqs: ['Passkeys, Windows Hello for Business or certificate-based auth registered for users', 'A Conditional Access authentication strength that requires phishing-resistant MFA', 'Token protection in Conditional Access for supported apps, and a compliant-device requirement', 'For the compliant network variant: the Global Secure Access client with the Microsoft traffic profile on every device users sign in from, signaling for Conditional Access turned on, and a policy that blocks access outside <i>All Compliant Network locations</i>'],
     antiPattern: 'Calling any MFA "phishing-resistant". Number matching helps against push fatigue, but a relayed session is still a perfectly valid sign-in.',
     verify: 'Nobody gets phished in Live mode. It signs you in, lists the methods registered on your account, marks which ones resist phishing and shows the <code>amr</code> values in your real token.',
   },
@@ -1766,6 +1783,21 @@ FLOWS.push({
       { id: 'ph-fwd', from: 'attacker', to: 'entra', label: 'Forwards password', title: 'Kit signs in as the user', det: 'protocol', desc: 'From Entra\'s side this is the user signing in, just from an odd IP address.' },
       { id: 'ph-push', from: 'entra', to: 'user', label: 'Push: enter 42', title: 'Real MFA prompt on the phone', det: 'human', desc: 'Entra sends a genuine push with number matching. The kit shows the number on the fake page, so it all adds up for the user.' },
       { id: 'ph-approve', from: 'user', to: 'entra', label: 'Approves', title: 'User approves', det: 'human', desc: 'The push can\'t tell which website asked for it. That\'s the whole weakness.', why: 'Push, SMS, voice and OTP codes prove the user is present. None of them prove which site the user is looking at.' },
+    );
+    if (v === 'network') {
+      return [...s,
+        { id: 'ph-cn', from: 'entra', to: 'entra', label: 'CA: compliant network?', title: 'Conditional Access checks how the sign-in arrived', det: 'policy',
+          desc: 'Password and MFA both passed, but Conditional Access runs before Entra issues anything. This sign-in reached Entra from the kit\'s server, not through Contoso\'s Global Secure Access, so it isn\'t in the compliant network.',
+          why: 'The compliant network is specific to the tenant. Running Global Secure Access in a tenant of their own doesn\'t help the attacker pass Contoso\'s check.',
+          checks: [{ name: 'Password and MFA', ok: true, detail: 'Relayed by the kit' }, { name: 'Policy: block outside All Compliant Network locations', ok: false, detail: 'Sign-in came from the kit\'s server' }] },
+        { id: 'ph-cn-block', from: 'entra', to: 'attacker', label: 'Blocked: AADSTS53003', title: 'No session and no tokens for the kit', det: 'policy', status: 'error',
+          desc: 'Entra refuses to finish the sign-in. The kit relays the error page, so the user sees "You can\'t access this right now" and nothing lands in the attacker\'s proxy.',
+          kv: { error: 'AADSTS53003', meaning: 'Access has been blocked by Conditional Access policies' } },
+        { id: 'ph-cn-left', from: 'attacker', to: 'attacker', label: 'Only the password', title: 'The attacker keeps the password, nothing more', det: 'protocol',
+          desc: 'Tokens taken some other way, for example by malware on a laptop, fail the same check whenever they\'re used outside the tunnel. The <a href="#flow/gsa-compliant-network">compliant network tab</a> plays that replay. The password is still stolen, so reset it and move users to passkeys, which stop the relay itself.' },
+      ];
+    }
+    s.push(
       { id: 'ph-cookie', from: 'entra', to: 'attacker', label: 'Session cookie + tokens', title: 'Entra issues the session to the kit', det: 'protocol', desc: 'Password and MFA both passed, so Entra sets the session cookie. It lands in the attacker\'s proxy.', res: { status: 302, statusText: 'Found', headers: { 'Set-Cookie': 'ESTSAUTHPERSISTENT=0.AR8A…[captured]; secure; HttpOnly' } } },
       { id: 'ph-redirect', from: 'attacker', to: 'user', label: 'Redirect to real Outlook', title: 'User lands in the real mailbox', det: 'protocol', desc: 'Nothing looks wrong to the user.' },
     );
@@ -2379,6 +2411,7 @@ FLOWS.push({
   const ERP = 'erp01.corp.contoso.com';
   const ERP_APP = 'Finance ERP (per-app access)';
   const WIKI = 'wiki.corp.contoso.com';
+  const FILES = 'files.corp.contoso.com';
 
   /* ---------- Private Access ---------- */
   // The client's tunnel, the edge's checks and the connector hop, shared by the variants that reach a private app.
@@ -2388,7 +2421,7 @@ FLOWS.push({
       why: extra.why,
       checks: [{ name: `Token signature, issuer and audience (${app} app)`, ok: true, kind: 'token' }, { name: 'Token not expired', ok: true, kind: 'token' }, { name: `${host}:${port} is in the ${app} app segment`, ok: true }, { name: 'Connector group for the app: HQ datacenter', ok: true }] },
     { id: `${p}-connector`, from: 'sse', to: 'connector', label: 'Over the connector\'s outbound link', title: 'The edge hands the connection to a connector', det: 'protocol', desc: 'Connectors only make outbound connections, so Contoso opened no inbound port in its firewall. Within the connector group, session affinity keeps requests from the same user and device on the same connector for the whole session.', kv: { connectorGroup: 'HQ datacenter', loadBalancing: 'Session affinity' } },
-    { id: `${p}-app`, from: 'connector', to: 'privApp', label: `TCP ${port}`, title: 'The connector opens the connection inside the network', det: 'protocol', desc: `To ${host} the connector is an ordinary internal client. The server sees the connector's address, never the laptop's.` },
+    { id: `${p}-app`, from: 'connector', to: extra.to || 'privApp', label: `TCP ${port}`, title: 'The connector opens the connection inside the network', det: 'protocol', desc: `To ${host} the connector is an ordinary internal client. The server sees the connector's address, never the laptop's.` },
   ];
   const paToken = (p, app, policyChecks, desc) => [
     { id: `${p}-token`, from: 'gsaClient', to: 'entra', label: `Token for ${app} app`, title: 'Client asks Entra for a token for the app', det: 'protocol', desc: `Every Private Access app, Quick Access or per-app, is an enterprise app in Entra. The client asks for a token for the ${app} app as the signed-in user on this device. Conditional Access runs on that request, exactly as it would for a SaaS app.` },
@@ -2400,20 +2433,44 @@ FLOWS.push({
     preview: 'Home network support and multiple Private Access traffic forwarding profiles are in preview.',
     title: 'Private Access instead of a VPN',
     subtitle: 'Per-app access to an on-premises server over RDP, with Conditional Access on the app and no inbound firewall port.',
-    actors: ['user', 'pc', 'byodPc', 'printer', 'gsaClient', 'entra', 'sse', 'connector', 'privApp'],
-    layout: { user: [110, 70], pc: [110, 250], byodPc: [110, 420], printer: [400, 520], gsaClient: [400, 330], entra: [400, 70], sse: [690, 200], connector: [970, 330], privApp: [970, 70] },
+    actors: ['user', 'pc', 'byodPc', 'printer', 'gsaClient', 'entra', 'sse', 'connector', 'privApp', 'fileShare', 'dc'],
+    layout: { user: [110, 70], pc: [110, 250], byodPc: [110, 420], printer: [400, 520], gsaClient: [400, 330], entra: [400, 70], sse: [690, 200], connector: [970, 330], privApp: [970, 70], fileShare: [1250, 70], dc: [1250, 330] },
     variants: [
       { id: 'managed', label: 'Managed laptop', desc: 'Alex connects to the finance ERP server over RDP from a café. No VPN, one app, one policy.' },
       { id: 'byod', label: 'Personal laptop (BYOD)', desc: 'The same user on an unmanaged laptop. The intranet wiki lets them in with MFA. The finance ERP server wants a compliant device and says no.' },
       { id: 'home', label: 'At home with a printer', desc: 'Home network support sends printer traffic straight to the local subnet while the ERP connection stays in the tunnel.' },
+      { id: 'kerberos', label: 'Kerberos SSO to a file share', desc: 'Alex opens a finance file share with no password prompt. Windows gets its own Kerberos tickets from a domain controller published through the tunnel. The connector never signs in as the user.' },
     ],
     brief: {
-      what: 'A VPN puts the whole laptop on the network. <b>Microsoft Entra Private Access</b>, one half of Global Secure Access, publishes private apps instead. The <b>Global Secure Access client</b> tunnels only the hosts and ports of the apps a user is assigned to. Each app is an enterprise app in Entra with its own Conditional Access policy, so the same users, groups and policies you use for SaaS apply, with nothing to sync. A <b>private network connector</b> next to the server makes outbound connections only. Any TCP or UDP app works, RDP and SMB as well as web apps, and the app doesn\'t change. <b>Quick Access</b> covers a broad set of FQDNs and IP ranges in one app. <b>Per-app access</b> gives a sensitive server, like this ERP server, an app and a policy of its own.',
-      prereqs: ['Entra ID P1 for each user, plus Private Access, Global Secure Access or Entra Suite licences', 'Private network connectors on servers that can reach the app, in a connector group. Each connector registers with Entra and gets its own certificate', `A per-app Global Secure Access app for <code>${ERP}</code> on TCP 3389, with users and groups assigned`, 'The Private Access traffic forwarding profile enabled, and the client on the devices', 'Conditional Access policies with the app as the target resource'],
+      what: 'A VPN puts the whole laptop on the network. <b>Microsoft Entra Private Access</b>, one half of Global Secure Access, publishes private apps instead. The <b>Global Secure Access client</b> tunnels only the hosts and ports of the apps a user is assigned to. Each app is an enterprise app in Entra with its own Conditional Access policy, so the same users, groups and policies you use for SaaS apply, with nothing to sync. A <b>private network connector</b> next to the server makes outbound connections only. Any TCP or UDP app works, RDP and SMB as well as web apps, and the app doesn\'t change.       <b>Quick Access</b> covers a broad set of FQDNs and IP ranges in one app. <b>Per-app access</b> gives a sensitive server, like this ERP server, an app and a policy of its own. For single sign-on to Windows apps the device gets its own <b>Kerberos</b> tickets from domain controllers published through the tunnel. Unlike Application Proxy, the connector never uses Kerberos delegation to sign in as the user.',
+            prereqs: ['Entra ID P1 for each user, plus Private Access, Global Secure Access or Entra Suite licences', 'Private network connectors on servers that can reach the app, in a connector group. Each connector registers with Entra and gets its own certificate', `A per-app Global Secure Access app for <code>${ERP}</code> on TCP 3389, with users and groups assigned`, 'The Private Access traffic forwarding profile enabled, and the client on the devices', 'Conditional Access policies with the app as the target resource', 'For Kerberos SSO: users synced from AD, connectors that can reach the domain controllers, those domain controllers published as their own app with the Kerberos and LDAP ports, and Private DNS in Quick Access. Entra joined devices use Windows Hello for Business cloud Kerberos trust'],
       antiPattern: 'Moving the whole VPN address space into one Quick Access app and stopping there. That keeps the reach of a VPN. Use Quick Access to retire the VPN, then give sensitive servers their own per-app access and a stricter policy.',
       verify: 'Simulated only. The client gets its tokens from Entra through Windows, so the tab shows each token\'s audience and lifetime rather than decoding it.',
     },
     steps: (ctx) => {
+      if (ctx.variant === 'kerberos') {
+        const SHARE = 'Finance file share';
+        return [
+          { id: 'pk-open', from: 'user', to: 'pc', label: `Open \\\\${FILES}\\finance`, title: 'User opens a file share', det: 'human', desc: `${ID.user.name} signed in to the Entra joined laptop with Windows Hello and opens the finance share from home. There is no VPN and no password prompt coming.` },
+          { id: 'pk-acquire', from: 'pc', to: 'gsaClient', label: `TCP ${FILES}:445`, title: 'Client acquires the SMB connection', det: 'protocol', desc: 'The share is its own per-app Private Access app on TCP 445, so the client takes the connection.', kv: { destination: `${FILES}:445`, profile: 'Private Access', app: SHARE } },
+          ...paToken('pk', SHARE, [{ name: `Policy target resource: ${SHARE}`, ok: true }, { name: 'User assigned to the app', ok: true, detail: 'Finance group' }, { name: 'Grant: MFA', ok: true, detail: 'Windows Hello at sign-in' }, { name: 'Grant: compliant device', ok: true, detail: 'Intune: compliant' }],
+            'Conditional Access decides who reaches the share at all. Kerberos, next, decides who the share thinks you are.'),
+          { id: 'pk-token-res', from: 'entra', to: 'gsaClient', label: 'Access token', title: 'Token for the share app', det: 'protocol', desc: '', kv: { audience: `${SHARE} (Private Access app)`, lifetime: '60 to 90 minutes' } },
+          ...privatePath('pk', SHARE, FILES, 445, { to: 'fileShare' }),
+          { id: 'pk-krb-ask', from: 'fileShare', to: 'pc', label: 'SMB: Kerberos required (tunneled)', title: 'The share asks for a Kerberos ticket', det: 'protocol', desc: `The share answers the SMB session setup by asking for Kerberos. The reply comes back through the connector and the tunnel. Windows now needs a service ticket for <code>cifs/${FILES}</code>, and for that it needs a domain controller.` },
+          { id: 'pk-srv', from: 'pc', to: 'gsaClient', label: 'DNS SRV _kerberos._tcp', title: 'Windows looks for a domain controller', det: 'protocol', desc: 'Private DNS in Quick Access sends the query through the tunnel, after the same token step for the Quick Access app, and a connector asks the internal DNS servers. The answer lists the domain controllers in the connectors\' AD site.', kv: { query: '_kerberos._tcp.corp.contoso.com', via: 'Quick Access, Private DNS' } },
+          { id: 'pk-ptgt', from: 'entra', to: 'pc', label: 'Partial TGT', title: 'Entra hands Windows a partial TGT', det: 'protocol', desc: 'With Windows Hello for Business cloud Kerberos trust, Entra issues a partial ticket-granting ticket, also called a cloud TGT, and Windows asks for one if it doesn\'t have it yet. Entra can do this because Contoso created an Entra Kerberos server object in AD.' },
+          { id: 'pk-dc-token', from: 'gsaClient', to: 'entra', label: 'Token for Domain controllers app', title: 'Client gets a token for the domain controllers', det: 'protocol', desc: 'The domain controllers are published as a Private Access app of their own, with each one\'s FQDN or IP and the Kerberos and LDAP ports. Wildcards don\'t work for them. Conditional Access runs for this app too.' },
+          { id: 'pk-dc-ok', from: 'entra', to: 'gsaClient', label: 'Access token', title: 'Token for the domain controllers app', det: 'protocol', desc: '', kv: { audience: 'Domain controllers (Private Access app)', lifetime: '60 to 90 minutes' } },
+          { id: 'pk-locator', from: 'connector', to: 'dc', label: 'DC locator, UDP 389', title: 'Windows finds the nearest domain controller', det: 'protocol', desc: 'Windows sends an LDAP ping to each domain controller in the DNS answer. The client tunnels it with the new token, the edge checks it, and a connector delivers it, the same way as the share connection. Windows keeps the fastest one.',
+            why: 'If the client wasn\'t connected yet when Windows first looked for a domain controller, Windows caches the failure for 10 minutes, the FarKdcTimeout. SSO starts working once that runs out.' },
+          { id: 'pk-tgt', from: 'pc', to: 'dc', label: 'Partial TGT → full TGT (tunneled)', title: 'Windows trades the partial TGT for a full one', det: 'protocol', desc: 'The domain controller accepts the partial TGT that Entra issued and returns a full TGT with Alex\'s AD groups. Windows then asks the same domain controller for a service ticket for the share.' },
+          { id: 'pk-tgs', from: 'dc', to: 'pc', label: `Service ticket cifs/${FILES}`, title: 'Service ticket for the share', det: 'protocol', desc: '', kv: { spn: `cifs/${FILES}`, user: ID.user.upn } },
+          { id: 'pk-smb', from: 'pc', to: 'fileShare', label: 'SMB session setup + ticket (tunneled)', title: 'Windows presents the ticket', det: 'protocol', desc: 'Through the tunnel and the connector, as before. The share validates the ticket with its own key, exactly as it would on the office LAN.',
+            why: 'The laptop got its own tickets. The connector only relayed the traffic and never acted as the user. Application Proxy is different: for Windows authentication its connector uses Kerberos constrained delegation to sign in to a web app on the user\'s behalf.' },
+          { id: 'pk-done', from: 'fileShare', to: 'pc', label: 'Share opens', title: 'No password prompt', det: 'protocol', desc: 'One Windows Hello sign-in reached an on-premises file share. Conditional Access checked the share app and the domain controllers app on the way, and Kerberos did the rest.' },
+        ];
+      }
       if (ctx.variant === 'byod') {
         return [
           { id: 'pb-wiki', from: 'user', to: 'byodPc', label: `Open ${WIKI}`, title: 'User opens the intranet wiki', det: 'human', desc: 'Alex works from a personal Windows laptop today. Installing the Global Secure Access client registered the device in Entra. On Windows BYOD the client offers the Private Access profile only.' },
@@ -2999,7 +3056,7 @@ const REF_ACCESS_A = [
       ['Assignment: who', 'Users, groups, roles, guests, workload identities, agent identities', '<code>oid</code>, <code>idtyp</code>, <code>xms_*</code>'],
       ['Assignment: what', 'Cloud apps, user actions such as registering security info, authentication contexts', '<code>aud</code>, <code>acrs</code>'],
       ['Condition: device', 'Platform, device filters, join type, compliance', '<code>deviceid</code>'],
-      ['Condition: network', 'Named locations, countries, compliant network through Global Secure Access', '<code>ipaddr</code>'],
+      ['Condition: network', 'Named locations, countries, and the compliant network: "came through our own Global Secure Access". See the <a href="#flow/gsa-compliant-network">compliant network tab</a>', 'Nothing for the compliant network. It\'s checked in Entra and by CAE resources, never carried in the token. <code>ipaddr</code> is only the address Entra saw: the Global Secure Access edge\'s, unless source IP restoration passes on the user\'s'],
       ['Condition: risk', 'Sign-in risk, user risk, insider risk, agent and workload risk', 'Nothing. Risk stays in Entra'],
       ['Condition: client and flow', 'Browser, desktop apps, legacy protocols, device code flow, authentication transfer', '<code>appid</code>, <code>amr</code>'],
       ['Grant: block', 'Block access', 'No token at all. AADSTS53003'],
@@ -3020,7 +3077,8 @@ const REF_ACCESS_B = [
       ['Pass-through authentication', 'Entra hands the password to agents on-premises for checking', 'Rules that forbid password hashes in the cloud', 'On-premises outage means no sign-in. Add PHS as a backup'],
       ['Federation with AD FS', 'Entra redirects to AD FS for sign-in', 'Legacy only', 'Extra infrastructure and a golden SAML risk. Most customers migrate to PHS or staged rollout'],
       ['Cloud Kerberos trust', 'Entra issues partial Kerberos tickets for on-premises resources', 'Windows Hello for Business to on-premises file shares', 'Replaces key and certificate trust for WHfB'],
-      ['App Proxy or Private Access', 'Publishes on-premises web apps through Entra, with Kerberos delegation', 'Old intranet apps behind Conditional Access', 'Private Access is part of Global Secure Access'],
+      ['Application Proxy', 'Publishes on-premises web apps through Entra. For Windows authentication the connector uses Kerberos constrained delegation to sign in as the user', 'Old intranet web apps behind Conditional Access', 'Web apps only. The connector needs delegation rights in AD'],
+      ['Private Access', 'Tunnels any TCP or UDP app, such as RDP, SMB or a web app, with an Entra token and Conditional Access per app. The device gets its own Kerberos tickets from domain controllers published through the tunnel', 'Replacing the VPN. See the <a href="#flow/gsa-private-access">Private Access tab</a>', 'No delegation on the connector. Publish the domain controllers, and use Windows Hello cloud Kerberos trust for SSO from Entra joined devices'],
     ],
   },
   {
@@ -3115,12 +3173,13 @@ const REF_IQ = [
     {
       id: 'gsa', title: 'Global Secure Access at a glance',
       intro: `Microsoft Entra Global Secure Access is Microsoft's Security Service Edge: Microsoft Entra Private Access and Microsoft Entra Internet Access, sold together since 2 November 2026 and still available on their own. Entra Suite includes it, and Microsoft 365 E7 includes Entra Suite. It uses the users, groups, apps and Conditional Access policies already in Entra. See the ${tab('gsa-private-access', 'Private Access tab')} first.`,
-      cols: ['Part', 'What it does', 'Tab'],
+      cols: ['Part', 'What it does', 'See'],
       rows: [
         ['Global Secure Access client', 'Runs on Windows, macOS, iOS and Android. Tunnels the traffic its forwarding profiles cover to the nearest edge, with an Entra token per tunnel', tab('gsa-private-access', 'Private Access')],
         ['Traffic forwarding profiles', 'Checked in order: Microsoft traffic, then Private Access, then Internet Access. Entra sign-in traffic always has its own profile', tab('gsa-compliant-network', 'Compliant network')],
         ['Quick Access and per-app access', 'Quick Access publishes a broad set of private FQDNs and IP ranges as one app. Per-app access gives a server its own enterprise app, users and Conditional Access policy', tab('gsa-private-access', 'Private Access')],
         ['Private network connector', 'Next to the app. Outbound connections only, so no inbound firewall ports. Connector groups give high availability and session affinity', tab('gsa-private-access', 'Private Access')],
+        ['Kerberos SSO', 'The device gets its own Kerberos tickets from domain controllers published through Private Access, starting from a cloud Kerberos trust partial TGT. The connector never uses delegation', tab('gsa-private-access', 'Private Access')],
         ['Security profiles', 'Linked to users and groups by a Conditional Access session control, and run in priority order. The baseline profile applies to everyone and runs last. A Continue default action passes to the next profile', tab('gsa-internet-access', 'Internet Access')],
         ['Controls inside a profile', 'TLS inspection, web content filtering, threat intelligence, file type, DLP, third-party, in that order', tab('gsa-internet-access', 'Internet Access')],
         ['Cloud firewall', 'Allow and Block rules on destination, port and protocol for TCP and UDP beyond the web. Needs Custom Acquire for ports other than 80 and 443', tab('gsa-internet-access', 'Internet Access')],
@@ -3279,13 +3338,13 @@ const THREATS = [
   { name: 'Refresh token theft', stop: 'Refresh tokens rotate, SPA ones expire in 24 hours, Conditional Access runs on every use and CAE revokes them.', mitre: ['T1528'], std: [RFC9700('4.14')], flows: ['refresh-cae', 'device-sso'] },
   { name: 'Leaked client secret', stop: 'A managed identity, a federated credential or a certificate, so there is no secret to leak.', mitre: ['T1552.001'], std: [RFC9700('2.5')], flows: ['client-credentials', 'managed-identity', 'wif', 'web-app', 'agent-autonomous'] },
   { name: 'Over-broad federated credential', stop: 'Pin the issuer, subject and audience, so only one repo, branch or service account can sign in.', mitre: ['T1078.004'], std: [{ label: 'RFC 7523', url: 'https://www.rfc-editor.org/rfc/rfc7523' }], flows: ['wif'] },
-  { name: 'Adversary-in-the-middle phishing', stop: 'Phishing-resistant MFA such as passkeys, which are bound to the real sign-in domain, plus token protection.', mitre: ['T1557', 'T1539'], std: [], flows: ['aitm'] },
+  { name: 'Adversary-in-the-middle phishing', stop: 'Phishing-resistant MFA such as passkeys, which are bound to the real sign-in domain, plus token protection. A compliant network policy refuses the kit\'s relayed sign-in, because it doesn\'t come through your own Global Secure Access.', mitre: ['T1557', 'T1539'], std: [], flows: ['aitm'] },
   { name: 'Device code phishing', stop: 'Block the device code flow with a Conditional Access authentication flows policy wherever it isn\'t needed.', mitre: ['T1566.002', 'T1528'], std: [{ label: 'RFC 8628 §5.4', url: 'https://www.rfc-editor.org/rfc/rfc8628#section-5.4' }], flows: ['device-code'] },
   { name: 'Password spray and risky sign-ins', stop: 'MFA, Identity Protection risk policies and step-up for sensitive actions.', mitre: ['T1110.003'], std: [], flows: ['id-protection', 'step-up'] },
   { name: 'Prompt injection stealing credentials', stop: 'The host holds every token and secret. The model only chooses tools, so there is nothing in its context to steal.', mitre: ['AML.T0051'], std: [{ label: 'OWASP LLM01', url: 'https://genai.owasp.org/llmrisk/llm01-prompt-injection/' }], flows: ['agent-autonomous', 'agent-obo', 'agent-user', 'multi-agent', 'workiq-mcp'] },
   { name: 'Overshared data surfacing through an agent', stop: 'Answers are trimmed with the user\'s own permissions and labels, so an agent sees only what the user may see.', mitre: ['AML.T0057'], std: [{ label: 'OWASP LLM02', url: 'https://genai.owasp.org/llmrisk/llm022025-sensitive-information-disclosure/' }], flows: ['iq-oversharing', 'foundry-iq', 'workiq-mcp', 'foundry-workiq'] },
   { name: 'Lateral movement from a VPN-connected device', stop: 'Per-app Private Access reaches one host and port per app, each behind its own Conditional Access policy, through connectors that accept no inbound connections.', mitre: ['T1021', 'T1133'], std: [], flows: ['gsa-private-access'] },
-  { name: 'Stolen token replayed from outside', stop: 'The compliant network check refuses the refresh token at Entra, and CAE resources such as Graph reject the access token.', mitre: ['T1550.001', 'T1528'], std: [RFC9700('4.10')], flows: ['gsa-compliant-network'] },
+  { name: 'Stolen token replayed from outside', stop: 'The compliant network check refuses the refresh token at Entra, and CAE resources such as Graph reject the access token.', mitre: ['T1550.001', 'T1528'], std: [RFC9700('4.10')], flows: ['gsa-compliant-network', 'aitm'] },
   { name: 'Access that outlives a compromised device or account', stop: 'Universal CAE reevaluates at the Global Secure Access edge on device and risk events and closes the tunnels if Conditional Access fails.', mitre: ['T1078'], std: [], flows: ['gsa-universal-cae', 'gsa-compliant-network'] },
   { name: 'Phishing and malicious destinations', stop: 'Threat intelligence filtering and web content filtering at the edge, for people, kiosks and agents.', mitre: ['T1566.002', 'T1189'], std: [], flows: ['gsa-internet-access', 'gsa-browser-proxy', 'gsa-agents'] },
   { name: 'Sensitive data uploaded to AI or web apps', stop: 'TLS inspection and network content filtering with Purview block labelled or sensitive content on its way out.', mitre: ['T1567'], std: [{ label: 'OWASP LLM02', url: 'https://genai.owasp.org/llmrisk/llm022025-sensitive-information-disclosure/' }], flows: ['gsa-ai-data', 'gsa-agents'] },
@@ -3562,6 +3621,8 @@ const L = {
   gsaPrompt: ['Prompt injection protection', 'https://learn.microsoft.com/en-us/entra/global-secure-access/how-to-ai-prompt-injection-protection'],
   gsaHeaders: ['Custom headers', 'https://learn.microsoft.com/en-us/entra/global-secure-access/how-to-configure-custom-headers'],
   gsaMcpLog: ['MCP traffic logging', 'https://learn.microsoft.com/en-us/entra/global-secure-access/how-to-view-model-context-protocol-logging'],
+  gsaKerberos: ['Kerberos SSO with Private Access', 'https://learn.microsoft.com/en-us/entra/global-secure-access/how-to-configure-kerberos-sso'],
+  cloudKerberos: ['Windows Hello for Business cloud Kerberos trust', 'https://learn.microsoft.com/en-us/windows/security/identity-protection/hello-for-business/deploy/hybrid-cloud-kerberos-trust'],
   w365Agents: ['Windows 365 for Agents network security', 'https://learn.microsoft.com/en-us/windows-365/agents/network-security-globalsecureaccess'],
   studioGsa: ['Global Secure Access for Copilot Studio agents', 'https://learn.microsoft.com/en-us/power-platform/admin/security/secure-web-ai-gateway-agents'],
 };
@@ -3574,9 +3635,9 @@ const DOC_LINKS = {
   'refresh-cae': [L.refresh, L.cae, L.claimsChallenge],
   'managed-identity': [L.mi, L.miToken],
   wif: [L.wif, L.wifTrust],
-  'ca-sim': [L.ca, L.whatIf, L.whatIfApi],
+  'ca-sim': [L.ca, L.whatIf, L.whatIfApi, L.gsaCompliant],
   'step-up': [L.authContextDev, L.claimsChallenge, L.authStrength],
-  aitm: [L.authMethods, L.passkeys, L.authStrength, L.tokenProt, L.authMethodsApi, L.webauthn],
+  aitm: [L.authMethods, L.passkeys, L.authStrength, L.tokenProt, L.gsaCompliant, L.authMethodsApi, L.webauthn],
   'device-sso': [L.prt, L.devices, L.compliant],
   'id-protection': [L.idp, L.risks, L.riskPolicies],
   'agent-autonomous': [L.agentIds, L.blueprint, L.agentClaims],
@@ -3589,7 +3650,7 @@ const DOC_LINKS = {
   'foundry-iq': [L.foundryIq, L.foundryIqConnect, L.kbRetrieve, L.searchQueryAcl, L.searchDocAcl, L.foundryIqFaq],
   'foundry-workiq': [L.wiqKs, L.kbRetrieve, L.workIqPerms, L.obo, L.wifTrust],
   'iq-oversharing': [L.kbRetrieve, L.searchQueryAcl, L.fabricIqAgents, L.dag, L.rcd, L.copilotPurview],
-  'gsa-private-access': [L.gsaPrivate, L.gsaPerApp, L.gsaConnectors, L.gsaConnGroups, L.gsaCaPrivate, L.gsaByod, L.gsaHome, L.gsaProfiles, L.gsaOffering],
+  'gsa-private-access': [L.gsaPrivate, L.gsaPerApp, L.gsaConnectors, L.gsaConnGroups, L.gsaCaPrivate, L.gsaKerberos, L.cloudKerberos, L.gsaByod, L.gsaHome, L.gsaProfiles, L.gsaOffering],
   'gsa-internet-access': [L.gsaWebFilter, L.gsaCaInternet, L.gsaThreat, L.gsaFirewall, L.gsaIaProfile, L.gsaBlockPage, L.gsaOffering],
   'gsa-browser-proxy': [L.gsaProxy, L.gsaCaInternet, L.gsaZeroTrust],
   'gsa-compliant-network': [L.gsaCompliant, L.gsaSourceIp, L.cae, L.gsaTraffic],
@@ -3614,7 +3675,7 @@ const DOC_GROUPS = [
   ['Foundry IQ and Fabric IQ', [L.foundryIq, L.foundryIqFaq, L.foundryIqConnect, L.foundryMcpAuth, L.kbRetrieve, L.searchQueryAcl, L.searchDocAcl, L.wiqKs, L.spRemoteKs, L.fabricIq, L.fabricIqAgents]],
   ['Oversharing and data protection', [L.copilotData, L.copilotPurview, L.dlpCopilot, L.semIndex, L.dag, L.rcd]],
   ['Global Secure Access and Zero Trust', [L.gsaOffering, L.gsaZeroTrust, L.gsa, L.gsaTraffic, L.gsaCompliant, L.gsaSourceIp, L.gsaUcae, L.gsaProxy, L.gsaByod]],
-  ['Private Access', [L.gsaPrivate, L.gsaPerApp, L.gsaConnectors, L.gsaConnGroups, L.gsaCaPrivate, L.gsaHome, L.gsaProfiles]],
+  ['Private Access', [L.gsaPrivate, L.gsaPerApp, L.gsaConnectors, L.gsaConnGroups, L.gsaCaPrivate, L.gsaKerberos, L.cloudKerberos, L.gsaHome, L.gsaProfiles]],
   ['Internet Access, AI and data', [L.gsaWebFilter, L.gsaCaInternet, L.gsaThreat, L.gsaFirewall, L.gsaIaProfile, L.gsaBlockPage, L.gsaTls, L.gsaContent, L.gsaNetDlpBlog, L.gsaPrompt, L.gsaHeaders, L.gsaMcpLog, L.w365Agents, L.studioGsa]],
 ];
 REFERENCE.unshift({
@@ -4649,8 +4710,9 @@ function casRenderLive(s) {
   const req = casBuildRequest(s), key = JSON.stringify(req);
   const shown = casLast && casLast.key === key ? casLast : null;
   const subjNote = s.subject === 'admin' || s.subject === 'guest' ? `<div class="notice" style="margin:8px 0">What If runs as the demo user. The ${s.subject} choice only changes the offline model.</div>` : '';
+  const netNote = isHuman(s) && s.network === 'gsa' ? '<div class="notice" style="margin:8px 0">What If only takes a country and an IP address, not the network path. Policies that use All Compliant Network locations can\'t be evaluated here, so the Network path choice only changes the offline model.</div>' : '';
   box.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><h2 class="h3" style="margin:0">Your tenant, via Graph What If</h2>
-      <button type="button" class="btn primary sm" id="casLiveBtn">Evaluate in my tenant</button></div>${subjNote}
+      <button type="button" class="btn primary sm" id="casLiveBtn">Evaluate in my tenant</button></div>${subjNote}${netNote}
     <details style="margin-top:8px"><summary class="soft" style="cursor:pointer">Request that will be sent</summary><pre class="http">${jsonHtml(req)}</pre></details>
     <div id="casLiveOut" aria-live="polite">${shown ? shown.html : ''}</div>`;
 }
@@ -5072,12 +5134,12 @@ const HUB_ORDER = {
   people: ['device', 'user', 'browser', 'attacker', 'pc', 'byodPc', 'printer', 'kiosk', 'partner', 'owner'],
   agents: ['agent', 'orchestrator', 'subagent', 'llm', 'mcpclient', 'foundry', 'localAgent', 'cloudPc'],
   network: ['gsaClient', 'sse', 'connector', 'purview'],
-  resources: ['extMcp', 'genai', 'web', 'privApp', 'mcpserver', 'downstream', 'search', 'workiq', 'm365', 'arm', 'fabric', 'graph'],
+  resources: ['extMcp', 'genai', 'web', 'fileShare', 'privApp', 'mcpserver', 'downstream', 'search', 'workiq', 'm365', 'arm', 'fabric', 'graph'],
   apps: ['scimClient', 'daemon', 'azapp', 'workload', 'api', 'webapp'],
-  identity: ['homeEntra', 'risk', 'intune', 'imds', 'idp'],
+  identity: ['homeEntra', 'risk', 'intune', 'imds', 'idp', 'dc'],
 };
 // Resources the agents column reaches most. They sit in the bow-tie's inner right column, nearest Entra.
-const BOW_INNER = ['mcpserver', 'downstream', 'search', 'workiq', 'privApp', 'extMcp'];
+const BOW_INNER = ['mcpserver', 'downstream', 'search', 'workiq', 'privApp', 'fileShare', 'extMcp'];
 
 const archZoneOf = (id) => (ZONES.some((z) => z.id === ACTORS[id]?.zone) ? ACTORS[id].zone : 'apps');
 const archZoneLabel = (zone) => ZONES.find((z) => z.id === zone)?.label || zone;

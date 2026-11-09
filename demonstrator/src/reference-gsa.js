@@ -10,12 +10,13 @@
     {
       id: 'gsa', title: 'Global Secure Access at a glance',
       intro: `Microsoft Entra Global Secure Access is Microsoft's Security Service Edge: Microsoft Entra Private Access and Microsoft Entra Internet Access, sold together since 2 November 2026 and still available on their own. Entra Suite includes it, and Microsoft 365 E7 includes Entra Suite. It uses the users, groups, apps and Conditional Access policies already in Entra. See the ${tab('gsa-private-access', 'Private Access tab')} first.`,
-      cols: ['Part', 'What it does', 'Tab'],
+      cols: ['Part', 'What it does', 'See'],
       rows: [
         ['Global Secure Access client', 'Runs on Windows, macOS, iOS and Android. Tunnels the traffic its forwarding profiles cover to the nearest edge, with an Entra token per tunnel', tab('gsa-private-access', 'Private Access')],
         ['Traffic forwarding profiles', 'Checked in order: Microsoft traffic, then Private Access, then Internet Access. Entra sign-in traffic always has its own profile', tab('gsa-compliant-network', 'Compliant network')],
         ['Quick Access and per-app access', 'Quick Access publishes a broad set of private FQDNs and IP ranges as one app. Per-app access gives a server its own enterprise app, users and Conditional Access policy', tab('gsa-private-access', 'Private Access')],
         ['Private network connector', 'Next to the app. Outbound connections only, so no inbound firewall ports. Connector groups give high availability and session affinity', tab('gsa-private-access', 'Private Access')],
+        ['Kerberos SSO', 'The device gets its own Kerberos tickets from domain controllers published through Private Access, starting from a cloud Kerberos trust partial TGT. The connector never uses delegation', tab('gsa-private-access', 'Private Access')],
         ['Security profiles', 'Linked to users and groups by a Conditional Access session control, and run in priority order. The baseline profile applies to everyone and runs last. A Continue default action passes to the next profile', tab('gsa-internet-access', 'Internet Access')],
         ['Controls inside a profile', 'TLS inspection, web content filtering, threat intelligence, file type, DLP, third-party, in that order', tab('gsa-internet-access', 'Internet Access')],
         ['Cloud firewall', 'Allow and Block rules on destination, port and protocol for TCP and UDP beyond the web. Needs Custom Acquire for ports other than 80 and 443', tab('gsa-internet-access', 'Internet Access')],

@@ -113,6 +113,8 @@ const L = {
   gsaPrompt: ['Prompt injection protection', 'https://learn.microsoft.com/en-us/entra/global-secure-access/how-to-ai-prompt-injection-protection'],
   gsaHeaders: ['Custom headers', 'https://learn.microsoft.com/en-us/entra/global-secure-access/how-to-configure-custom-headers'],
   gsaMcpLog: ['MCP traffic logging', 'https://learn.microsoft.com/en-us/entra/global-secure-access/how-to-view-model-context-protocol-logging'],
+  gsaKerberos: ['Kerberos SSO with Private Access', 'https://learn.microsoft.com/en-us/entra/global-secure-access/how-to-configure-kerberos-sso'],
+  cloudKerberos: ['Windows Hello for Business cloud Kerberos trust', 'https://learn.microsoft.com/en-us/windows/security/identity-protection/hello-for-business/deploy/hybrid-cloud-kerberos-trust'],
   w365Agents: ['Windows 365 for Agents network security', 'https://learn.microsoft.com/en-us/windows-365/agents/network-security-globalsecureaccess'],
   studioGsa: ['Global Secure Access for Copilot Studio agents', 'https://learn.microsoft.com/en-us/power-platform/admin/security/secure-web-ai-gateway-agents'],
 };
@@ -125,9 +127,9 @@ const DOC_LINKS = {
   'refresh-cae': [L.refresh, L.cae, L.claimsChallenge],
   'managed-identity': [L.mi, L.miToken],
   wif: [L.wif, L.wifTrust],
-  'ca-sim': [L.ca, L.whatIf, L.whatIfApi],
+  'ca-sim': [L.ca, L.whatIf, L.whatIfApi, L.gsaCompliant],
   'step-up': [L.authContextDev, L.claimsChallenge, L.authStrength],
-  aitm: [L.authMethods, L.passkeys, L.authStrength, L.tokenProt, L.authMethodsApi, L.webauthn],
+  aitm: [L.authMethods, L.passkeys, L.authStrength, L.tokenProt, L.gsaCompliant, L.authMethodsApi, L.webauthn],
   'device-sso': [L.prt, L.devices, L.compliant],
   'id-protection': [L.idp, L.risks, L.riskPolicies],
   'agent-autonomous': [L.agentIds, L.blueprint, L.agentClaims],
@@ -140,7 +142,7 @@ const DOC_LINKS = {
   'foundry-iq': [L.foundryIq, L.foundryIqConnect, L.kbRetrieve, L.searchQueryAcl, L.searchDocAcl, L.foundryIqFaq],
   'foundry-workiq': [L.wiqKs, L.kbRetrieve, L.workIqPerms, L.obo, L.wifTrust],
   'iq-oversharing': [L.kbRetrieve, L.searchQueryAcl, L.fabricIqAgents, L.dag, L.rcd, L.copilotPurview],
-  'gsa-private-access': [L.gsaPrivate, L.gsaPerApp, L.gsaConnectors, L.gsaConnGroups, L.gsaCaPrivate, L.gsaByod, L.gsaHome, L.gsaProfiles, L.gsaOffering],
+  'gsa-private-access': [L.gsaPrivate, L.gsaPerApp, L.gsaConnectors, L.gsaConnGroups, L.gsaCaPrivate, L.gsaKerberos, L.cloudKerberos, L.gsaByod, L.gsaHome, L.gsaProfiles, L.gsaOffering],
   'gsa-internet-access': [L.gsaWebFilter, L.gsaCaInternet, L.gsaThreat, L.gsaFirewall, L.gsaIaProfile, L.gsaBlockPage, L.gsaOffering],
   'gsa-browser-proxy': [L.gsaProxy, L.gsaCaInternet, L.gsaZeroTrust],
   'gsa-compliant-network': [L.gsaCompliant, L.gsaSourceIp, L.cae, L.gsaTraffic],
@@ -165,7 +167,7 @@ const DOC_GROUPS = [
   ['Foundry IQ and Fabric IQ', [L.foundryIq, L.foundryIqFaq, L.foundryIqConnect, L.foundryMcpAuth, L.kbRetrieve, L.searchQueryAcl, L.searchDocAcl, L.wiqKs, L.spRemoteKs, L.fabricIq, L.fabricIqAgents]],
   ['Oversharing and data protection', [L.copilotData, L.copilotPurview, L.dlpCopilot, L.semIndex, L.dag, L.rcd]],
   ['Global Secure Access and Zero Trust', [L.gsaOffering, L.gsaZeroTrust, L.gsa, L.gsaTraffic, L.gsaCompliant, L.gsaSourceIp, L.gsaUcae, L.gsaProxy, L.gsaByod]],
-  ['Private Access', [L.gsaPrivate, L.gsaPerApp, L.gsaConnectors, L.gsaConnGroups, L.gsaCaPrivate, L.gsaHome, L.gsaProfiles]],
+  ['Private Access', [L.gsaPrivate, L.gsaPerApp, L.gsaConnectors, L.gsaConnGroups, L.gsaCaPrivate, L.gsaKerberos, L.cloudKerberos, L.gsaHome, L.gsaProfiles]],
   ['Internet Access, AI and data', [L.gsaWebFilter, L.gsaCaInternet, L.gsaThreat, L.gsaFirewall, L.gsaIaProfile, L.gsaBlockPage, L.gsaTls, L.gsaContent, L.gsaNetDlpBlog, L.gsaPrompt, L.gsaHeaders, L.gsaMcpLog, L.w365Agents, L.studioGsa]],
 ];
 REFERENCE.unshift({

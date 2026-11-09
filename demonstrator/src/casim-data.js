@@ -11,6 +11,7 @@ const CAS_INPUTS = [
   { key: 'platform', label: 'Platform', opts: [['windows', 'Windows'], ['macOS', 'macOS'], ['iOS', 'iOS'], ['android', 'Android'], ['linux', 'Linux']], human: true },
   { key: 'client', label: 'Client', opts: [['browser', 'Browser'], ['desktop', 'Desktop or mobile app'], ['legacy', 'Legacy protocol']], human: true },
   { key: 'location', label: 'Location', opts: [['office', 'Office network'], ['home', 'Home, same country'], ['abroad', 'Abroad'], ['blocked', 'Blocked country']] },
+  { key: 'network', label: 'Network path', opts: [['direct', 'Direct to the internet'], ['gsa', 'Through Global Secure Access']], human: true },
   { key: 'method', label: 'User can present', opts: [['none', 'Password only'], ['push', 'Push MFA'], ['passkey', 'Passkey or Windows Hello']], human: true },
   { key: 'flowType', label: 'Sign-in flow', opts: [['normal', 'Normal'], ['devicecode', 'Device code']], human: true },
   { key: 'signInRisk', label: 'Sign-in risk', opts: [['none', 'None'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High']], human: true },
@@ -18,9 +19,9 @@ const CAS_INPUTS = [
   { key: 'authContext', label: 'Sensitive action', opts: [['none', 'No'], ['c1', 'Yes, auth context c1']], human: true },
   { key: 'agentRisk', label: 'Agent risk', opts: [['none', 'None'], ['medium', 'Medium'], ['high', 'High']], agent: true },
 ];
-const CAS_DEFAULT = { subject: 'user', app: 'm365', device: 'unknown', platform: 'windows', client: 'browser', location: 'home', method: 'push', flowType: 'normal', signInRisk: 'none', userRisk: 'none', authContext: 'none', agentRisk: 'none' };
+const CAS_DEFAULT = { subject: 'user', app: 'm365', device: 'unknown', platform: 'windows', client: 'browser', location: 'home', network: 'direct', method: 'push', flowType: 'normal', signInRisk: 'none', userRisk: 'none', authContext: 'none', agentRisk: 'none' };
 const CAS_PRESETS = [
-  { label: 'Employee on a managed laptop', s: { device: 'compliant', client: 'desktop', location: 'office', method: 'passkey' } },
+  { label: 'Employee on a managed laptop', s: { device: 'compliant', client: 'desktop', location: 'office', network: 'gsa', method: 'passkey' } },
   { label: 'Employee on an unknown home PC', s: { device: 'unknown', client: 'browser', location: 'home', method: 'push' } },
   { label: 'Same PC, Outlook desktop', s: { device: 'unknown', client: 'desktop', location: 'home', method: 'push' } },
   { label: 'Traveller on a hotel VPN', s: { device: 'registered', platform: 'iOS', location: 'abroad', signInRisk: 'medium' } },
@@ -28,7 +29,8 @@ const CAS_PRESETS = [
   { label: 'Leaked credentials', s: { userRisk: 'high' } },
   { label: 'Admin on a personal Mac', s: { subject: 'admin', app: 'azure', device: 'registered', platform: 'macOS', method: 'push' } },
   { label: 'Device code phishing', s: { device: 'unknown', client: 'desktop', location: 'abroad', flowType: 'devicecode' } },
-  { label: 'Approve a payment', s: { app: 'finance', device: 'compliant', location: 'office', authContext: 'c1', method: 'push' } },
+  { label: 'Approve a payment', s: { app: 'finance', device: 'compliant', location: 'office', network: 'gsa', authContext: 'c1', method: 'push' } },
+  { label: 'Finance app off the tunnel', s: { app: 'finance', device: 'compliant', client: 'desktop', location: 'home', network: 'direct', method: 'passkey' } },
   { label: 'Guest partner', s: { subject: 'guest', device: 'unknown', location: 'abroad' } },
   { label: 'Agent with high risk', s: { subject: 'agent', app: 'finance', agentRisk: 'high' } },
 ];
@@ -53,6 +55,8 @@ const CAS_POLICIES = [
   { id: 'CA012', name: 'Sensitive actions need phishing-resistant MFA', when: (s) => (!isHuman(s) ? 'users' : s.authContext !== 'c1' ? 'authenticationContext' : null), grant: { all: ['phishingResistant'] }, session: ['Sign-in frequency every time'] },
   { id: 'CA013', name: 'Token protection for desktop apps on Windows', when: (s) => (!isHuman(s) ? 'users' : s.app !== 'm365' ? 'application' : s.platform !== 'windows' ? 'devicePlatform' : s.client !== 'desktop' ? 'clientApps' : null), grant: { all: ['boundSession'] }, session: ['Token protection for sign-in sessions'] },
   { id: 'CA014', name: 'Agents: block high-risk agent identities', when: (s) => (isHuman(s) ? 'users' : RISK[s.agentRisk] < 3 ? 'servicePrincipalRisk' : null), grant: { block: true }, preview: true },
+  { id: 'CA015', name: 'Finance app only through the compliant network', when: (s) => (!['user', 'admin'].includes(s.subject) ? 'users' : s.app !== 'finance' ? 'application' : s.network === 'gsa' ? 'compliantNetwork' : null),
+    grant: { block: true, why: 'Not in All Compliant Network locations' } },
 ];
 const CAS_CONTROLS = {
   mfa: { label: 'MFA', ok: (s) => s.method !== 'none', prompt: (s) => !(managed(s) && s.method === 'passkey') },
@@ -67,6 +71,7 @@ const CAS_REASONS = {
   users: 'User or identity not targeted', application: 'App not targeted', devices: 'Device excluded (already managed)', clientApps: 'Client app not targeted',
   authenticationFlow: 'Not a device code flow', signInRisk: 'Sign-in risk below threshold', userRisk: 'User risk below threshold', location: 'Location not targeted',
   authenticationContext: 'No authentication context requested', devicePlatform: 'Platform not targeted', servicePrincipalRisk: 'Agent risk below threshold',
+  compliantNetwork: 'Came through the compliant network, which the policy excludes',
 };
 
 FLOWS.push({
@@ -75,10 +80,10 @@ FLOWS.push({
   subtitle: 'Change the device, location, risk or app and watch the decision change for the same user.',
   actors: ['user', 'pc', 'browser', 'entra', 'intune', 'risk'],
   brief: {
-    what: 'Every sign-in is a question: who, to which app, from what device, where, how risky, and with which method. Conditional Access answers it. A policy can block, allow after grant controls such as MFA or a compliant device, or allow with session limits. Blocks always win, and every policy that applies has to be satisfied. Change one switch and the same user on the same app gets a different answer.',
-    prereqs: ['Entra ID P1 for Conditional Access, P2 for risk-based conditions', 'Devices registered in Entra and managed by Intune for device conditions', 'Named locations for the office network'],
+    what: 'Every sign-in is a question: who, to which app, from what device, where, how risky, and with which method. Conditional Access answers it. A policy can block, allow after grant controls such as MFA or a compliant device, or allow with session limits. Blocks always win, and every policy that applies has to be satisfied. Change one switch and the same user on the same app gets a different answer. <b>Network path</b> shows the compliant network check: the finance app only accepts sign-ins that come through Contoso\'s own Global Secure Access, wherever the user is.',
+    prereqs: ['Entra ID P1 for Conditional Access, P2 for risk-based conditions', 'Devices registered in Entra and managed by Intune for device conditions', 'Named locations for the office network', 'Global Secure Access with signaling for Conditional Access turned on, for the compliant network policy'],
     antiPattern: 'One giant policy with dozens of exclusions, or policies left in report-only forever. Keep policies small, named after what they do, and always exclude two break-glass accounts.',
-    verify: 'The offline engine models a sample Contoso policy set. In Live mode the same switches go to Graph\'s What If API, and you see what your tenant\'s real policies would do.',
+    verify: 'The offline engine models a sample Contoso policy set. In Live mode the same switches go to Graph\'s What If API, and you see what your tenant\'s real policies would do. What If has no input for the network path, so the compliant network only shows in the offline model.',
   },
   steps: () => [],
 });

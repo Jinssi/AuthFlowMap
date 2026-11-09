@@ -23,12 +23,12 @@ const HUB_ORDER = {
   people: ['device', 'user', 'browser', 'attacker', 'pc', 'byodPc', 'printer', 'kiosk', 'partner', 'owner'],
   agents: ['agent', 'orchestrator', 'subagent', 'llm', 'mcpclient', 'foundry', 'localAgent', 'cloudPc'],
   network: ['gsaClient', 'sse', 'connector', 'purview'],
-  resources: ['extMcp', 'genai', 'web', 'privApp', 'mcpserver', 'downstream', 'search', 'workiq', 'm365', 'arm', 'fabric', 'graph'],
+  resources: ['extMcp', 'genai', 'web', 'fileShare', 'privApp', 'mcpserver', 'downstream', 'search', 'workiq', 'm365', 'arm', 'fabric', 'graph'],
   apps: ['scimClient', 'daemon', 'azapp', 'workload', 'api', 'webapp'],
-  identity: ['homeEntra', 'risk', 'intune', 'imds', 'idp'],
+  identity: ['homeEntra', 'risk', 'intune', 'imds', 'idp', 'dc'],
 };
 // Resources the agents column reaches most. They sit in the bow-tie's inner right column, nearest Entra.
-const BOW_INNER = ['mcpserver', 'downstream', 'search', 'workiq', 'privApp', 'extMcp'];
+const BOW_INNER = ['mcpserver', 'downstream', 'search', 'workiq', 'privApp', 'fileShare', 'extMcp'];
 
 const archZoneOf = (id) => (ZONES.some((z) => z.id === ACTORS[id]?.zone) ? ACTORS[id].zone : 'apps');
 const archZoneLabel = (zone) => ZONES.find((z) => z.id === zone)?.label || zone;

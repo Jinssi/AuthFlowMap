@@ -1,5 +1,14 @@
 # Changelog
 
+### 2026-11-09
+
+**Global Secure Access corrections.** A review of how the demonstrator represents Global Secure Access, checked against the Learn pages on the compliant network check, source IP restoration, Kerberos SSO with Private Access and the Graph What If API.
+- **Private Access: Kerberos SSO to a file share.** A new variant follows the documented sequence: per-app token, Private DNS lookup, partial TGT from cloud Kerberos trust, DC locator through the published domain controllers, full TGT and service ticket. The connector relays traffic and never uses delegation. A domain controller and a file share join the architecture page.
+- **Session theft: push MFA + compliant network.** A fourth variant where Conditional Access refuses the phishing kit's relayed sign-in because it didn't come through Contoso's Global Secure Access.
+- **Conditional Access simulator.** A Network path switch and a policy that only lets the finance app in through the compliant network, with a new preset. Live mode says the network path stays offline, because What If only takes a country and an IP address.
+- **Reference fixes.** The network condition no longer claims the compliant network shows up as `ipaddr`. It isn't in the token, and `ipaddr` is the edge's address unless source IP restoration is on. Application Proxy and Private Access are separate rows: only Application Proxy uses Kerberos constrained delegation. The links in "Global Secure Access at a glance" work again, and it has a Kerberos SSO row.
+- The phishing threats mention the compliant network, and the session theft and simulator tabs link to its documentation.
+
 ### 2026-11-03
 
 **Global Secure Access and Zero Trust.** A new section based on the Entra blog posts "Global Secure Access: Private Access and Internet Access in one offering" and "Secure AI, web, and private apps with Zero Trust", and the Learn pages they link.

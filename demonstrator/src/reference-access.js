@@ -40,7 +40,7 @@ const REF_ACCESS_A = [
       ['Assignment: who', 'Users, groups, roles, guests, workload identities, agent identities', '<code>oid</code>, <code>idtyp</code>, <code>xms_*</code>'],
       ['Assignment: what', 'Cloud apps, user actions such as registering security info, authentication contexts', '<code>aud</code>, <code>acrs</code>'],
       ['Condition: device', 'Platform, device filters, join type, compliance', '<code>deviceid</code>'],
-      ['Condition: network', 'Named locations, countries, compliant network through Global Secure Access', '<code>ipaddr</code>'],
+      ['Condition: network', 'Named locations, countries, and the compliant network: "came through our own Global Secure Access". See the <a href="#flow/gsa-compliant-network">compliant network tab</a>', 'Nothing for the compliant network. It\'s checked in Entra and by CAE resources, never carried in the token. <code>ipaddr</code> is only the address Entra saw: the Global Secure Access edge\'s, unless source IP restoration passes on the user\'s'],
       ['Condition: risk', 'Sign-in risk, user risk, insider risk, agent and workload risk', 'Nothing. Risk stays in Entra'],
       ['Condition: client and flow', 'Browser, desktop apps, legacy protocols, device code flow, authentication transfer', '<code>appid</code>, <code>amr</code>'],
       ['Grant: block', 'Block access', 'No token at all. AADSTS53003'],
@@ -61,7 +61,8 @@ const REF_ACCESS_B = [
       ['Pass-through authentication', 'Entra hands the password to agents on-premises for checking', 'Rules that forbid password hashes in the cloud', 'On-premises outage means no sign-in. Add PHS as a backup'],
       ['Federation with AD FS', 'Entra redirects to AD FS for sign-in', 'Legacy only', 'Extra infrastructure and a golden SAML risk. Most customers migrate to PHS or staged rollout'],
       ['Cloud Kerberos trust', 'Entra issues partial Kerberos tickets for on-premises resources', 'Windows Hello for Business to on-premises file shares', 'Replaces key and certificate trust for WHfB'],
-      ['App Proxy or Private Access', 'Publishes on-premises web apps through Entra, with Kerberos delegation', 'Old intranet apps behind Conditional Access', 'Private Access is part of Global Secure Access'],
+      ['Application Proxy', 'Publishes on-premises web apps through Entra. For Windows authentication the connector uses Kerberos constrained delegation to sign in as the user', 'Old intranet web apps behind Conditional Access', 'Web apps only. The connector needs delegation rights in AD'],
+      ['Private Access', 'Tunnels any TCP or UDP app, such as RDP, SMB or a web app, with an Entra token and Conditional Access per app. The device gets its own Kerberos tickets from domain controllers published through the tunnel', 'Replacing the VPN. See the <a href="#flow/gsa-private-access">Private Access tab</a>', 'No delegation on the connector. Publish the domain controllers, and use Windows Hello cloud Kerberos trust for SSO from Entra joined devices'],
     ],
   },
   {

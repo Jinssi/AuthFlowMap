@@ -34,8 +34,9 @@ function casRenderLive(s) {
   const req = casBuildRequest(s), key = JSON.stringify(req);
   const shown = casLast && casLast.key === key ? casLast : null;
   const subjNote = s.subject === 'admin' || s.subject === 'guest' ? `<div class="notice" style="margin:8px 0">What If runs as the demo user. The ${s.subject} choice only changes the offline model.</div>` : '';
+  const netNote = isHuman(s) && s.network === 'gsa' ? '<div class="notice" style="margin:8px 0">What If only takes a country and an IP address, not the network path. Policies that use All Compliant Network locations can\'t be evaluated here, so the Network path choice only changes the offline model.</div>' : '';
   box.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><h2 class="h3" style="margin:0">Your tenant, via Graph What If</h2>
-      <button type="button" class="btn primary sm" id="casLiveBtn">Evaluate in my tenant</button></div>${subjNote}
+      <button type="button" class="btn primary sm" id="casLiveBtn">Evaluate in my tenant</button></div>${subjNote}${netNote}
     <details style="margin-top:8px"><summary class="soft" style="cursor:pointer">Request that will be sent</summary><pre class="http">${jsonHtml(req)}</pre></details>
     <div id="casLiveOut" aria-live="polite">${shown ? shown.html : ''}</div>`;
 }

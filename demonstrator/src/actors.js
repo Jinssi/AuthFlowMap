@@ -234,6 +234,16 @@ const ACTORS = {
     desc: 'An MCP server on the internet that an agent on the laptop connects to, whether IT knows about it or not.',
     facts: ['Global Secure Access logs which MCP servers are used', 'The logs show which tools are listed and called', 'Local MCP servers on the same machine aren\'t visible'],
   },
+  fileShare: {
+    icon: '📁', name: 'Finance file share', role: 'Private app · SMB on-premises', zone: 'resources',
+    desc: 'A Windows file share in the datacenter, published through Private Access as its own app. It accepts Kerberos service tickets from AD, as it always has, and never sees an Entra token.',
+    facts: ['Published as a per-app Global Secure Access app on TCP 445', 'Validates the Kerberos ticket with its own key, as on the office LAN', 'Needs no change for Conditional Access or single sign-on'],
+  },
+  dc: {
+    icon: '🏰', name: 'AD domain controller', role: 'On-premises KDC · published via Private Access', zone: 'identity',
+    desc: 'Contoso\'s Active Directory domain controller, reached through Private Access like any other private app. It issues the Kerberos tickets that on-premises apps need. With Windows Hello for Business cloud Kerberos trust it swaps the partial TGT Entra issued for a full one.',
+    facts: ['Publish each domain controller\'s FQDN or IP with the Kerberos and LDAP ports, not a wildcard', 'Only the domain controllers in the connectors\' AD site need publishing', 'Cloud Kerberos trust relies on an Entra Kerberos server object in AD'],
+  },
 };
 
 const ZONES = [
@@ -249,8 +259,8 @@ const ARCH_POS = {
   api: [345, 100], webapp: [345, 210], daemon: [345, 320], azapp: [345, 430], workload: [345, 560], scimClient: [345, 690],
   agent: [585, 110], llm: [585, 230], mcpclient: [585, 350], orchestrator: [585, 470], subagent: [585, 590], foundry: [585, 710], localAgent: [585, 830], cloudPc: [585, 950],
   gsaClient: [825, 330], sse: [825, 450], connector: [825, 570], purview: [825, 690],
-  risk: [1055, 100], entra: [1055, 215], intune: [1055, 330], idp: [1055, 470], imds: [1055, 590], homeEntra: [1055, 760],
-  graph: [1285, 90], mcpserver: [1285, 195], downstream: [1285, 300], arm: [1285, 405], search: [1285, 515], workiq: [1285, 620], m365: [1285, 725], fabric: [1285, 835], privApp: [1285, 945], web: [1285, 1055], genai: [1285, 1165], extMcp: [1285, 1275],
+  risk: [1055, 100], entra: [1055, 215], intune: [1055, 330], idp: [1055, 470], imds: [1055, 590], homeEntra: [1055, 760], dc: [1055, 880],
+  graph: [1285, 90], mcpserver: [1285, 195], downstream: [1285, 300], arm: [1285, 405], search: [1285, 515], workiq: [1285, 620], m365: [1285, 725], fabric: [1285, 835], privApp: [1285, 945], web: [1285, 1055], genai: [1285, 1165], extMcp: [1285, 1275], fileShare: [1285, 1385],
 };
 // A third element overrides the edge kind the architecture page would infer from the zones.
 const ARCH_EDGES = [
@@ -267,6 +277,7 @@ const ARCH_EDGES = [
   ['pc', 'gsaClient'], ['byodPc', 'gsaClient'], ['printer', 'gsaClient'], ['localAgent', 'gsaClient'], ['cloudPc', 'gsaClient'], ['localAgent', 'llm'], ['cloudPc', 'entra'],
   ['gsaClient', 'entra'], ['gsaClient', 'sse'], ['kiosk', 'sse'], ['kiosk', 'entra'], ['sse', 'entra', 'trust'], ['sse', 'purview', 'trust'],
   ['sse', 'connector'], ['connector', 'privApp'], ['sse', 'web'], ['sse', 'genai'], ['sse', 'extMcp'],
+  ['connector', 'fileShare'], ['connector', 'dc'], ['dc', 'entra', 'trust'],
 ];
 
 /* =====================================================================
