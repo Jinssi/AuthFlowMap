@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const src = (f) => readFileSync(join(here, 'src', f), 'utf8');
 
-const scripts = ['config.js', 'actors.js', 'flows-standard.js', 'flows-webapp.js', 'flows-standard2.js', 'flows-standard3.js', 'casim-data.js', 'flows-access1.js', 'flows-access2.js', 'flows-access3.js', 'flows-access4.js', 'flows-agent.js', 'flows-mcp.js', 'flows-iq.js', 'flows-gsa1.js', 'flows-gsa2.js', 'reference.js', 'reference-access.js', 'reference-iq.js', 'reference-gsa.js', 'learn.js', 'doc-links.js', 'engine.js', 'player.js', 'casim.js', 'casim-live.js', 'live.js', 'arch.js', 'app.js'];
+const scripts = ['config.js', 'actors.js', 'flows-standard.js', 'flows-webapp.js', 'flows-standard2.js', 'flows-standard3.js', 'casim-data.js', 'flows-access1.js', 'flows-access2.js', 'flows-access3.js', 'flows-access4.js', 'flows-hybrid.js', 'flows-agent.js', 'flows-mcp.js', 'flows-iq.js', 'flows-gsa1.js', 'flows-gsa2.js', 'reference.js', 'reference-access.js', 'reference-iq.js', 'reference-gsa.js', 'learn.js', 'doc-links.js', 'engine.js', 'player.js', 'casim.js', 'casim-live.js', 'live.js', 'arch.js', 'app.js'];
 const guard = (s) => s.replace(/<\/script/gi, '<\\/script');
 
 let html = src('template.html')

@@ -42,7 +42,7 @@ FLOWS.push({
   brief: {
     what: 'Azure gives the compute resource an identity, then owns and rotates its credential. Your code asks a <b>local endpoint</b> for tokens. Anything running on Azure should use this, and that includes Agent ID blueprints hosted there.',
     prereqs: ['A system-assigned or user-assigned managed identity on the App Service, Function, Container App, VM or AKS workload', 'An Azure RBAC role on the target, or Graph app roles assigned with PowerShell'],
-    antiPattern: 'A client secret in app settings because it felt easier. Sharing one user-assigned identity across a dozen unrelated apps is almost as bad, since one compromise reaches all of them.',
+    antiPattern: 'A client secret in app settings because it felt easier. Sharing one user-assigned identity across a dozen unrelated apps is almost as bad, since one compromise reaches all of them. An ordinary on-premises server does not have Azure IMDS: use a certificate or supported workload federation instead, unless a supported host such as Azure Arc explicitly provides a managed identity.',
   },
   tokens: (ctx) => ({ AT: { label: 'Managed identity token (aud = Graph)', ...TK.app(ctx.t, { aud: GRAPH, azp: ID.mi.clientId, oid: ID.mi.oid, roles: ['User.Read.All'], v1: true, extra: { appidacr: '2', xms_mirid: '/subscriptions/1c2d…/resourcegroups/rg-web/providers/Microsoft.Web/sites/contoso-web' } }) } }),
   steps: () => [

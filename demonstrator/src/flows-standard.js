@@ -97,7 +97,7 @@ FLOWS.push({
     { id: 'stolen-code', simOnly: true, label: 'Break it: stolen code, no verifier', desc: 'Authorization code interception (RFC 7636 section 1, RFC 9700 sections 2.1.1 and 4.5). An attacker who copied the code tries to redeem it without the real code_verifier. Entra rejects it with invalid_grant AADSTS501481 and issues no tokens. Simulation only.' },
   ],
   brief: {
-    what: 'If a user is at the keyboard, this is the flow to use. It fits web apps, SPAs, mobile and desktop alike. OAuth 2.1 makes PKCE mandatory for public clients and recommends it for everyone else.',
+    what: 'If a user is at the keyboard, this is the flow to use. It fits web apps, SPAs, mobile and desktop alike. OAuth 2.1 makes PKCE mandatory for public clients and recommends it for everyone else.<br><br>The user can originate in <b>on-premises AD</b>. <a href="#flow/hybrid-signin">PHS, PTA and federation</a> change primary authentication, not the authorization code + PKCE contract or the cloud token issuer.',
     prereqs: ['App registration with the <b>SPA</b> platform and redirect URI', 'Delegated permission <code>User.Read</code> with consent', 'No client secret, because a browser app can\'t keep one'],
     antiPattern: 'The <b>implicit flow</b> with <code>response_type=token</code> puts tokens in the URL, where browser history and proxy logs pick them up. <b>ROPC</b> hands the user\'s password to the app, which breaks MFA and phishing protection. Both are deprecated.',
   },

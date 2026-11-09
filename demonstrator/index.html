@@ -795,7 +795,7 @@ const ACTORS = {
   user: {
     icon: '👤', name: ID.user.name, role: 'Human user', zone: 'people',
     desc: 'The person who signs in, does MFA and gives consent. In delegated flows every token is issued for this user. The app can do only what the user can do and what the app was granted.',
-    facts: ['Proves who they are to Entra ID, never to the app', 'Consent means "this app may do X for me"', 'Entra runs Conditional Access for this user at every sign-in'],
+    facts: ['For cloud OAuth, authenticates at Entra or its trusted identity provider, never by handing the client a password', 'Consent means "this app may do X for me"', 'Direct AD/Kerberos access is a separate boundary; it does not automatically invoke Entra Conditional Access'],
   },
   browser: {
     icon: '🌐', name: 'Client app (SPA)', role: 'Public client in a browser', zone: 'people',
@@ -893,9 +893,9 @@ const ACTORS = {
     facts: ['aud = https://management.azure.com', 'Authorizes with Azure RBAC, not with roles in the token'],
   },
   pc: {
-    icon: '💻', name: 'Managed laptop', role: 'Entra joined · WAM + PRT in TPM', zone: 'people',
-    desc: 'A company laptop joined to Entra ID and enrolled in Intune. At Windows sign-in it gets a Primary Refresh Token bound to the TPM. Browsers and apps use it for single sign-on and to prove which device they run on.',
-    facts: ['The PRT key never leaves the TPM', 'Sign-ins from this device carry a device ID and compliance state', 'Conditional Access can require exactly this kind of device'],
+    icon: '💻', name: 'Managed laptop', role: 'Windows · AD / Entra device identity', zone: 'people',
+    desc: 'A company Windows laptop. Entra joined and hybrid-joined devices can obtain a device-bound PRT for cloud SSO. An AD-only device instead has domain trust and Kerberos; that alone does not prove an Entra device identity.',
+    facts: ['Join type and Intune compliance are separate facts', 'A PRT proves cloud device identity; a Kerberos TGT serves AD resources', 'The flow variant specifies AD-only, hybrid joined or Entra joined'],
   },
   attacker: {
     icon: '🕵️', name: 'Attacker', role: 'Phishing proxy · own device', zone: 'people',
@@ -1030,8 +1030,38 @@ const ACTORS = {
   },
   dc: {
     icon: '🏰', name: 'AD domain controller', role: 'On-premises KDC · published via Private Access', zone: 'identity',
-    desc: 'Contoso\'s Active Directory domain controller, reached through Private Access like any other private app. It issues the Kerberos tickets that on-premises apps need. With Windows Hello for Business cloud Kerberos trust it swaps the partial TGT Entra issued for a full one.',
-    facts: ['Publish each domain controller\'s FQDN or IP with the Kerberos and LDAP ports, not a wildcard', 'Only the domain controllers in the connectors\' AD site need publishing', 'Cloud Kerberos trust relies on an Entra Kerberos server object in AD'],
+    desc: 'Contoso\'s on-premises Active Directory domain controller authenticates domain users and issues Kerberos tickets. It is reached on the LAN, by authentication agents or through Private Access. With Windows Hello for Business cloud Kerberos trust it swaps the partial TGT Entra issued for a full one.',
+    facts: ['AD account rules and Kerberos are separate from Entra Conditional Access', 'For Private Access, publish each required domain controller with the Kerberos and LDAP ports, not a wildcard', 'Cloud Kerberos trust relies on an Entra Kerberos server object in AD'],
+  },
+  sync: {
+    icon: '🔄', name: 'Directory sync', role: 'AD identities to Entra · background', zone: 'identity',
+    desc: 'Entra Connect Sync or Cloud Sync provisions selected AD identities into Entra. Password hash synchronization also sends a derived password hash, not a plaintext password. Synchronization is not an OAuth token exchange.',
+    facts: ['Synchronization and the sign-in method are separate choices', 'Changes propagate asynchronously; cloud and AD account state can differ temporarily', 'A synchronized user still has an Entra object ID'],
+  },
+  authAgent: {
+    icon: '🔌', name: 'PTA agent', role: 'On-premises password validation', zone: 'identity',
+    desc: 'A pass-through authentication agent uses outbound connections to retrieve encrypted password validation requests from Entra and checks them against AD. It returns the result, not an OAuth token.',
+    facts: ['Needs reachable domain controllers at password sign-in', 'Multiple agents provide availability', 'Backup PHS requires a deliberate switch, not automatic failover'],
+  },
+  adfs: {
+    icon: '🏛️', name: 'AD FS', role: 'On-premises federated identity provider', zone: 'identity',
+    desc: 'For a federated domain, Entra redirects the browser to AD FS. AD FS authenticates against AD and returns a signed federation assertion to Entra. Entra remains the issuer of the cloud API token.',
+    facts: ['A federation assertion is not the API access token', 'Trust in federation signing keys is a security boundary', 'Accepting federated MFA depends on tenant configuration and the required authentication strength'],
+  },
+  appProxy: {
+    icon: '🌉', name: 'Application Proxy', role: 'Cloud preauthentication · reverse proxy', zone: 'apps',
+    desc: 'Publishes a private web app at an external URL. With Entra preauthentication it validates the cloud session before relaying requests to a private network connector. It is not a general VPN or a Global Secure Access tunnel.',
+    facts: ['Conditional Access targets the published enterprise app', 'Passthrough preauthentication does not add Entra MFA', 'An independently reachable internal URL is a separate access path'],
+  },
+  proxyConnector: {
+    icon: '🔌', name: 'App Proxy connector', role: 'On-premises relay · KCD for IWA', zone: 'apps',
+    desc: 'The private network connector in its Application Proxy role pulls requests over an outbound secure channel. For an Integrated Windows Authentication app it uses Kerberos constrained delegation to obtain a service ticket as the mapped AD user.',
+    facts: ['Domain joined and allowed to delegate only to the configured service', 'Needs a correct SPN and cloud-to-AD user mapping', 'Unlike Private Access forwarding, this IWA SSO path uses delegation'],
+  },
+  legacyWeb: {
+    icon: '🏢', name: 'Intranet web app', role: 'On-premises IWA · local authorization', zone: 'resources',
+    desc: 'A legacy web app that accepts Kerberos service tickets and applies its own AD group or application permissions. It does not validate an Entra access token or read authentication context claims.',
+    facts: ['Validates the service ticket for its HTTP SPN', 'Cloud preauthentication does not replace its own permissions', 'Direct LAN access needs its own protection; Entra MFA is not a Kerberos ticket property'],
   },
 };
 
@@ -1045,11 +1075,11 @@ const ZONES = [
 ];
 const ARCH_POS = {
   user: [120, 100], browser: [120, 215], pc: [120, 330], device: [120, 445], attacker: [120, 590], partner: [120, 705], owner: [120, 820], byodPc: [120, 935], printer: [120, 1050], kiosk: [120, 1165],
-  api: [345, 100], webapp: [345, 210], daemon: [345, 320], azapp: [345, 430], workload: [345, 560], scimClient: [345, 690],
+  api: [345, 100], webapp: [345, 210], daemon: [345, 320], azapp: [345, 430], workload: [345, 560], scimClient: [345, 690], appProxy: [345, 800], proxyConnector: [345, 910],
   agent: [585, 110], llm: [585, 230], mcpclient: [585, 350], orchestrator: [585, 470], subagent: [585, 590], foundry: [585, 710], localAgent: [585, 830], cloudPc: [585, 950],
   gsaClient: [825, 330], sse: [825, 450], connector: [825, 570], purview: [825, 690],
-  risk: [1055, 100], entra: [1055, 215], intune: [1055, 330], idp: [1055, 470], imds: [1055, 590], homeEntra: [1055, 760], dc: [1055, 880],
-  graph: [1285, 90], mcpserver: [1285, 195], downstream: [1285, 300], arm: [1285, 405], search: [1285, 515], workiq: [1285, 620], m365: [1285, 725], fabric: [1285, 835], privApp: [1285, 945], web: [1285, 1055], genai: [1285, 1165], extMcp: [1285, 1275], fileShare: [1285, 1385],
+  risk: [1055, 100], entra: [1055, 215], intune: [1055, 330], idp: [1055, 470], imds: [1055, 590], homeEntra: [1055, 760], dc: [1055, 880], sync: [1055, 990], authAgent: [1055, 1100], adfs: [1055, 1210],
+  graph: [1285, 90], mcpserver: [1285, 195], downstream: [1285, 300], arm: [1285, 405], search: [1285, 515], workiq: [1285, 620], m365: [1285, 725], fabric: [1285, 835], privApp: [1285, 945], web: [1285, 1055], genai: [1285, 1165], extMcp: [1285, 1275], fileShare: [1285, 1385], legacyWeb: [1285, 1495],
 };
 // A third element overrides the edge kind the architecture page would infer from the zones.
 const ARCH_EDGES = [
@@ -1067,6 +1097,8 @@ const ARCH_EDGES = [
   ['gsaClient', 'entra'], ['gsaClient', 'sse'], ['kiosk', 'sse'], ['kiosk', 'entra'], ['sse', 'entra', 'trust'], ['sse', 'purview', 'trust'],
   ['sse', 'connector'], ['connector', 'privApp'], ['sse', 'web'], ['sse', 'genai'], ['sse', 'extMcp'],
   ['connector', 'fileShare'], ['connector', 'dc'], ['dc', 'entra', 'trust'],
+  ['dc', 'sync', 'trust'], ['sync', 'entra', 'trust'], ['entra', 'authAgent', 'trust'], ['authAgent', 'dc', 'trust'], ['browser', 'adfs'], ['adfs', 'dc', 'trust'], ['adfs', 'entra', 'trust'],
+  ['pc', 'dc'], ['browser', 'appProxy'], ['appProxy', 'entra'], ['appProxy', 'proxyConnector'], ['proxyConnector', 'dc'], ['proxyConnector', 'legacyWeb'], ['browser', 'legacyWeb'],
 ];
 
 /* =====================================================================
@@ -1239,7 +1271,7 @@ FLOWS.push({
     { id: 'stolen-code', simOnly: true, label: 'Break it: stolen code, no verifier', desc: 'Authorization code interception (RFC 7636 section 1, RFC 9700 sections 2.1.1 and 4.5). An attacker who copied the code tries to redeem it without the real code_verifier. Entra rejects it with invalid_grant AADSTS501481 and issues no tokens. Simulation only.' },
   ],
   brief: {
-    what: 'If a user is at the keyboard, this is the flow to use. It fits web apps, SPAs, mobile and desktop alike. OAuth 2.1 makes PKCE mandatory for public clients and recommends it for everyone else.',
+    what: 'If a user is at the keyboard, this is the flow to use. It fits web apps, SPAs, mobile and desktop alike. OAuth 2.1 makes PKCE mandatory for public clients and recommends it for everyone else.<br><br>The user can originate in <b>on-premises AD</b>. <a href="#flow/hybrid-signin">PHS, PTA and federation</a> change primary authentication, not the authorization code + PKCE contract or the cloud token issuer.',
     prereqs: ['App registration with the <b>SPA</b> platform and redirect URI', 'Delegated permission <code>User.Read</code> with consent', 'No client secret, because a browser app can\'t keep one'],
     antiPattern: 'The <b>implicit flow</b> with <code>response_type=token</code> puts tokens in the URL, where browser history and proxy logs pick them up. <b>ROPC</b> hands the user\'s password to the app, which breaks MFA and phishing protection. Both are deprecated.',
   },
@@ -1331,7 +1363,7 @@ FLOWS.push({
       { id: 'secret', label: 'Client secret', desc: 'The app sends a shared secret. Fine for a lab, risky anywhere else.' },
     ],
     brief: {
-      what: 'This is the classic web app: ASP.NET, Spring, Express or Django running on a server. Two identities meet in one flow. The <b>user</b> proves who they are to Entra and comes back with an authorization code. The <b>app</b> then redeems that code and proves who <i>it</i> is with a certificate or a secret, so a stolen code is useless to anyone else. The tokens stay in the server\'s token cache. The browser only ever holds a session cookie.',
+      what: 'This is the classic web app: ASP.NET, Spring, Express or Django running on a server. Two identities meet in one flow. The <b>user</b> proves who they are to Entra and comes back with an authorization code. The <b>app</b> then redeems that code and proves who <i>it</i> is with a certificate or a secret, so a stolen code is useless to anyone else. The tokens stay in the server\'s token cache. The browser only ever holds a session cookie.<br><br>The server can be <b>on-premises</b>; hosting does not change this OAuth contract. A synchronized AD user can authenticate through <a href="#flow/hybrid-signin">PHS, PTA or federation</a>. An old IWA app that does not implement OIDC needs a different bridge, such as <a href="#flow/onprem-app-proxy">Application Proxy with KCD</a>.',
       prereqs: ['App registration with the <b>Web</b> platform and a redirect URI such as /signin-oidc', 'A credential on the app: a certificate or a federated credential in production, a secret in a lab', 'Delegated permissions such as User.Read', 'A server-side session store and token cache. MSAL and Microsoft.Identity.Web provide both'],
       antiPattern: 'Sending the access token down to the browser "so the JavaScript can call the API too", or registering the redirect under the SPA platform to skip the credential. Either way the app loses the protection it has as a confidential client. Also avoid the old implicit or hybrid flow just to get an ID token.',
       verify: 'Live mode runs this with a real app registration. The popup is the web app: the local server plays the web app back end, redeems the code with its own secret or certificate and keeps the tokens.',
@@ -1514,7 +1546,7 @@ FLOWS.push({
   brief: {
     what: 'Azure gives the compute resource an identity, then owns and rotates its credential. Your code asks a <b>local endpoint</b> for tokens. Anything running on Azure should use this, and that includes Agent ID blueprints hosted there.',
     prereqs: ['A system-assigned or user-assigned managed identity on the App Service, Function, Container App, VM or AKS workload', 'An Azure RBAC role on the target, or Graph app roles assigned with PowerShell'],
-    antiPattern: 'A client secret in app settings because it felt easier. Sharing one user-assigned identity across a dozen unrelated apps is almost as bad, since one compromise reaches all of them.',
+    antiPattern: 'A client secret in app settings because it felt easier. Sharing one user-assigned identity across a dozen unrelated apps is almost as bad, since one compromise reaches all of them. An ordinary on-premises server does not have Azure IMDS: use a certificate or supported workload federation instead, unless a supported host such as Azure Arc explicitly provides a managed identity.',
   },
   tokens: (ctx) => ({ AT: { label: 'Managed identity token (aud = Graph)', ...TK.app(ctx.t, { aud: GRAPH, azp: ID.mi.clientId, oid: ID.mi.oid, roles: ['User.Read.All'], v1: true, extra: { appidacr: '2', xms_mirid: '/subscriptions/1c2d…/resourcegroups/rg-web/providers/Microsoft.Web/sites/contoso-web' } }) } }),
   steps: () => [
@@ -1828,22 +1860,44 @@ FLOWS.push({
   id: 'device-sso', group: 'access', icon: '💻', live: true,
   title: 'Device identity and single sign-on',
   subtitle: 'A managed laptop signs in silently and proves what it is. An unknown device gets prompted and restricted.',
-  actors: ['user', 'pc', 'browser', 'intune', 'entra', 'graph'],
-  layout: { user: [110, 80], pc: [110, 330], browser: [480, 400], intune: [480, 80], entra: [860, 200], graph: [860, 420] },
+  actors: ['user', 'pc', 'dc', 'browser', 'intune', 'entra', 'graph'],
+  layout: { user: [110, 80], pc: [110, 330], dc: [110, 490], browser: [480, 400], intune: [480, 80], entra: [860, 200], graph: [860, 420] },
   variants: [
     { id: 'managed', label: 'Managed, compliant laptop', desc: 'Entra joined, enrolled in Intune, signed in with Windows Hello. The browser rides on the device\'s PRT.' },
     { id: 'unknown', label: 'Unknown home PC', desc: 'No device identity at all. Entra only knows a browser showed up.' },
+    { id: 'hybrid', label: 'Hybrid joined: AD + Entra', desc: 'An AD password logon and Kerberos TGT are separate from the cloud PRT. Intune compliance and cloud MFA still have to pass.', simOnly: true },
+    { id: 'ad-only', label: 'AD domain joined only', desc: 'AD knows the laptop, but Entra has no device identity from it. This cloud policy requires compliance and blocks access.', simOnly: true },
   ],
   brief: {
     what: 'A registered or joined device has its own identity in Entra. When a user signs in to Windows, the device gets a <b>Primary Refresh Token</b> whose key lives in the TPM. Edge, and Chrome with the Windows accounts extension, use it for single sign-on and to prove which device they\'re on. That\'s how Conditional Access can require a <b>compliant device</b>, and how the token ends up with a <code>deviceid</code> claim. An unknown device can\'t prove anything, so it lands on whatever your policy allows unmanaged devices.',
     prereqs: ['Devices Entra joined, hybrid joined or registered', 'Intune compliance policies', 'Conditional Access that requires a compliant device, or allows unmanaged devices only in the browser with app-enforced restrictions', 'Edge, or Chrome with the Windows accounts extension, on Windows'],
-    antiPattern: 'Treating "has MFA" as enough for full access from any device. A stolen session or an infected home PC then gets the same access as a patched company laptop.',
+    antiPattern: 'Treating "has MFA" as enough for full access from any device. A stolen session or an infected home PC then gets the same access as a patched company laptop. <b>AD domain joined is not Entra hybrid joined, and hybrid joined is not automatically compliant.</b> Group Policy and a Kerberos TGT do not prove cloud device compliance. See <a href="#flow/hybrid-signin">hybrid sign-in</a> and the <a href="#flow/onprem-app-proxy">on-premises app boundary</a>.',
     verify: 'Live mode signs you in from this browser and shows whether the token carries a <code>deviceid</code>. On a managed Windows device with Edge you should see one. From an unmanaged browser you won\'t.',
   },
   tokens: (ctx) => ({
-    AT: { label: 'Access token (aud = Graph)', ...TK.graphUser(ctx.t, { appid: '00000002-0000-0ff1-ce00-000000000000', scp: 'Mail.ReadWrite', appName: 'Outlook on the web', appidacr: '0', extra: ctx.variant === 'unknown' ? { amr: ['pwd', 'mfa'] } : { amr: ['mfa'], deviceid: 'b7e4c2a1-9f3d-4e6a-8c1b-2d5f7a9e0c34' } }) },
+    ...(ctx.variant === 'ad-only' ? {} : { AT: { label: 'Access token (aud = Graph)', ...TK.graphUser(ctx.t, { appid: '00000002-0000-0ff1-ce00-000000000000', scp: ctx.variant === 'hybrid' ? 'User.Read' : 'Mail.ReadWrite', appName: 'Outlook on the web', appidacr: '0', extra: ctx.variant === 'unknown' ? { amr: ['pwd', 'mfa'] } : { amr: ctx.variant === 'hybrid' ? ['pwd', 'mfa'] : ['mfa'], deviceid: 'b7e4c2a1-9f3d-4e6a-8c1b-2d5f7a9e0c34' } }) } }),
   }),
   steps: (ctx) => {
+    if (ctx.variant === 'ad-only') return [
+      { id: 'dv-ad-logon', from: 'user', to: 'pc', label: 'AD password logon', title: 'Sign in to an AD domain-joined laptop', det: 'human', stage: [], desc: 'The laptop is joined only to on-premises AD. This is not Entra hybrid join.' },
+      { id: 'dv-ad-tgt', from: 'pc', to: 'dc', label: 'AD authentication / TGT', title: 'AD authenticates the user', det: 'protocol', stage: 'issue', desc: 'A Kerberos TGT gives access to domain services, not an Entra PRT or a compliant-device claim.' },
+      { id: 'dv-ad-authz', from: 'browser', to: 'entra', label: 'Cloud sign-in, no device proof', title: 'Browser requests cloud access', det: 'protocol', stage: [], desc: 'The browser presents no Entra device proof. Optional Seamless SSO can remove a password prompt, but does not turn an AD-only laptop into a hybrid-joined or compliant device.' },
+      { id: 'dv-ad-mfa', from: 'entra', to: 'user', label: 'Password + cloud MFA', title: 'The user authenticates successfully', det: 'human', stage: [], desc: 'The synchronized user completes cloud MFA. User authentication and device trust are different requirements.' },
+      { id: 'dv-ad-block', from: 'entra', to: 'browser', label: 'Blocked: compliant device required', title: 'AD join is not cloud device compliance', det: 'policy', stage: 'issue', status: 'error', desc: 'This example requires a compliant device. No Entra device identity was presented, so MFA cannot rescue the request. No Graph access token is issued.', checks: [{ name: 'MFA completed', ok: true }, { name: 'Entra device identity presented', ok: false, detail: 'AD-only join' }, { name: 'Require compliant device', ok: false }], res: { status: 400, statusText: 'Bad Request', json: { error: 'invalid_grant', error_description: 'AADSTS53000: Device is not in required device state: compliant.' } } },
+    ];
+    if (ctx.variant === 'hybrid') return [
+      { id: 'dv-hy-logon', from: 'user', to: 'pc', label: 'AD password logon', title: 'Sign in to a hybrid-joined Windows laptop', det: 'human', stage: [], desc: 'This machine is joined to AD and has completed Entra hybrid device registration. The example starts with a password, not Windows Hello.' },
+      { id: 'dv-hy-tgt', from: 'pc', to: 'dc', label: 'AD authentication / TGT', title: 'On-premises AD authenticates the Windows logon', det: 'protocol', stage: 'issue', desc: 'Windows obtains a Kerberos TGT for domain resources. That ticket is not exchanged for an OAuth access token.' },
+      { id: 'dv-hy-prt-req', from: 'pc', to: 'entra', label: 'CloudAP requests PRT', title: 'A separate cloud authentication obtains the PRT', det: 'protocol', stage: [], desc: 'CloudAP proves the registered device and authenticates the synchronized user through the configured PHS, PTA or federation path. This logical hop omits those internals; the hybrid sign-in tab expands them. AD join alone is insufficient.' },
+      { id: 'dv-hy-prt-res', from: 'entra', to: 'pc', label: 'PRT + protected session key', title: 'Entra issues the device-bound PRT', det: 'protocol', stage: 'issue', desc: 'The PRT is protected by the device key. Conditional Access is evaluated for the subsequent cloud app request, not at PRT issuance. The password logon did not itself satisfy MFA.' },
+      { id: 'dv-hy-compliance', from: 'intune', to: 'entra', label: 'Separately: device compliant', title: 'Intune supplies an independent compliance result', det: 'policy', stage: [], desc: 'Hybrid join proves device identity, not health. This laptop is also enrolled in Intune and passes its compliance policy.' },
+      { id: 'dv-hy-authz', from: 'browser', to: 'entra', label: 'Cloud app sign-in + PRT proof', title: 'Edge uses the PRT for cloud SSO and device proof', det: 'protocol', stage: [], desc: 'The browser presents proof backed by the PRT session key. The Kerberos TGT remains for AD resources.' },
+      { id: 'dv-hy-mfa', from: 'entra', to: 'user', label: 'Cloud MFA', title: 'Cloud policy still requires MFA', det: 'human', stage: [], desc: 'The user completes Entra MFA because this password-backed PRT has not already satisfied the policy. A Windows Hello for Business deployment can change that experience.' },
+      { id: 'dv-hy-policy', from: 'entra', to: 'entra', label: 'Device + compliance + MFA', title: 'Entra evaluates the cloud application policy', det: 'policy', stage: 'issue', desc: 'This example requires a compliant device and MFA. Hybrid device identity and Intune compliance are separate signals; a policy may instead explicitly require hybrid join.', checks: [{ name: 'Entra hybrid device identity presented', ok: true }, { name: 'Device compliant in Intune', ok: true }, { name: 'MFA requirement satisfied', ok: true }] },
+      { id: 'dv-hy-token', from: 'entra', to: 'browser', label: 'Graph token with deviceid', title: 'Cloud access token issued', det: 'protocol', stage: 'issue', desc: 'The cloud resource receives an Entra token, never the AD Kerberos ticket.', res: { status: 200, statusText: 'OK', json: { access_token: '{{AT}}', token_type: 'Bearer' } } },
+      { id: 'dv-hy-graph', from: 'browser', to: 'graph', label: 'GET /me with cloud token', title: 'Call Graph with the Entra token', det: 'protocol', stage: [], desc: 'Cloud OAuth and on-premises Kerberos coexist, with separate audiences and lifetimes.', req: { method: 'GET', url: `${GRAPH}/v1.0/me`, headers: HDR.bearer('AT') } },
+      { id: 'dv-hy-ok', from: 'graph', to: 'browser', label: '200 profile', title: 'Graph validates and authorizes the request', det: 'resource', stage: ['validate', 'authorize'], desc: 'The cloud device proof enabled policy evaluation; Graph still validates its token and checks the delegated permission.', checks: [{ name: 'Signature, iss, aud, exp', ok: true, kind: 'token' }, { name: 'scp contains User.Read', ok: true, kind: 'access' }], res: { status: 200, statusText: 'OK', json: { displayName: ID.user.name } } },
+    ];
     if (ctx.variant === 'unknown') {
       return [
         { id: 'dv-open', from: 'user', to: 'browser', label: 'Opens Outlook on the web', title: 'User opens Outlook from a home PC', det: 'human', desc: 'Any browser on a machine the company knows nothing about.' },
@@ -1922,6 +1976,117 @@ FLOWS.push({
       { id: 'ip-mfa', from: 'entra', to: 'user', label: 'MFA prompt', title: 'User completes MFA', det: 'human', desc: 'An attacker with only the password would stop here.' },
       { id: 'ip-remediate', from: 'entra', to: 'risk', label: 'Risk remediated', title: 'MFA clears the sign-in risk', det: 'policy', desc: 'Passing MFA remediates the sign-in risk, and the detections close.', checks: [{ name: 'Sign-in risk state', ok: true, detail: 'remediated' }] },
       { id: 'ip-token', from: 'entra', to: 'browser', label: 'Tokens', title: 'Sign-in completes', det: 'protocol', desc: '', res: { status: 200, statusText: 'OK', json: { access_token: '{{AT}}' } } },
+    ];
+  },
+});
+
+
+// ---- flows-hybrid.js ----
+'use strict';
+
+FLOWS.push({
+  id: 'hybrid-signin', group: 'standard', icon: '🌉', live: false,
+  title: 'On-premises identity, cloud OAuth',
+  subtitle: 'AD supplies the identity; PHS, PTA or federation authenticates it. Entra still issues the cloud API token.',
+  actors: ['user', 'browser', 'dc', 'sync', 'authAgent', 'adfs', 'entra', 'api'],
+  layout: { user: [110, 80], browser: [110, 340], dc: [370, 80], sync: [640, 80], authAgent: [370, 230], adfs: [370, 400], entra: [640, 300], api: [900, 400] },
+  variants: [
+    { id: 'phs', label: 'Password hash sync', desc: 'AD identities and derived password hashes are synchronized first. Entra validates the password in the cloud.' },
+    { id: 'pta', label: 'Pass-through authentication', desc: 'Entra asks an on-premises agent to validate the password against AD; cloud Conditional Access follows.' },
+    { id: 'federation', label: 'Federation with AD FS', desc: 'AD FS authenticates the user and sends a signed assertion to Entra, not to the API.' },
+    { id: 'pta-outage', label: 'PTA: on-premises outage', desc: 'No agent can validate credentials. PHS may be configured as backup, but switching is not automatic.' },
+  ],
+  brief: {
+    what: '<b>On-premises is an identity boundary, not another OAuth grant.</b> Directory synchronization creates an Entra user from AD. The sign-in method decides where the password is checked: in Entra with <b>password hash synchronization (PHS)</b>, in AD through <b>pass-through authentication (PTA)</b>, or at <b>AD FS</b> through federation. The client still uses authorization code + PKCE, and the cloud API still validates an <b>Entra-issued</b> token.<br><br>Synchronization is background work, not a step repeated on every sign-in. Cloud and AD account state can differ until changes propagate. This fresh password sign-in deliberately has no cached session, PRT or Seamless SSO.',
+    prereqs: ['Selected AD users synchronized into Entra with a routable sign-in UPN', 'PHS enabled, reachable PTA agents, or a configured federated domain and trusted signing keys', 'An app registration, API scope, consent and a Conditional Access MFA policy', 'For PTA availability, multiple agents; a documented manual switch to preconfigured PHS for a major outage'],
+    antiPattern: 'Giving the app the AD password, accepting an AD FS assertion as an Entra API token, or assuming an AD account disable immediately revokes cloud sessions. A valid Kerberos ticket is not an OAuth bearer token.',
+    verify: 'Simulation only: no AD, agents or federation infrastructure is provisioned. Compare the identity provider hop, then verify that issuer, audience, PKCE and API authorization remain the same. Federated MFA acceptance depends on federatedIdpMfaBehavior and the required authentication strength; this example requires MFA at Entra.',
+  },
+  tokens: (ctx) => ctx.variant === 'pta-outage' ? {} : ({
+    AT: { label: 'Entra access token for the Orders API', ...TK.user(ctx.t, { aud: ID.api.appId, scp: 'access_as_user', azp: ID.spa.appId }) },
+    IDT: { label: 'ID token for the client, not the API', ...TK.idToken(ctx.t, ID.spa.appId, ctx.vars.nonce) },
+  }),
+  steps: (ctx) => {
+    const oauth = pkceSignInSteps('hy', { scope: `openid profile offline_access ${SCOPE.api}`, tokName: 'AT', audName: 'Orders API token' });
+    const provision = [
+      { id: 'hy-directory', from: 'dc', to: 'sync', label: 'Background: selected AD users', title: 'Before sign-in: synchronize the identity', det: 'protocol', stage: [], desc: 'The sync service reads the selected AD identities. This is provisioning, not authentication, and is not performed for every OAuth request.' },
+      { id: 'hy-sync', from: 'sync', to: 'entra', label: ctx.variant === 'phs' ? 'User + derived password hash' : 'Entra user object', title: 'A corresponding cloud user exists', det: 'protocol', stage: [], desc: ctx.variant === 'phs' ? 'PHS sends a salted, derived hash of the AD password hash. Entra can check a password without reaching a domain controller at sign-in. An AD outage does not by itself stop this cloud sign-in; the last synchronized cloud state applies.' : 'The synchronized user has an Entra object ID. Provisioning does not choose PTA or federation, nor does it grant access to the API.' },
+    ];
+    const primary = ctx.variant === 'federation' ? [
+      { id: 'hy-federate', from: 'entra', to: 'browser', label: 'Redirect to AD FS', title: 'Entra discovers a federated domain', det: 'protocol', stage: [], desc: 'The OAuth authorization request remains at Entra. The browser is redirected to the configured AD FS sign-in service for primary authentication.' },
+      { id: 'hy-adfs', from: 'browser', to: 'adfs', label: 'Federated sign-in', title: 'User authenticates at AD FS', det: 'human', stage: [], desc: 'The user signs in at the organization\'s federation service, never by giving their password to the client app.' },
+      { id: 'hy-ad-auth', from: 'adfs', to: 'dc', label: 'Authenticate against AD', title: 'AD validates the domain user', det: 'protocol', stage: [], desc: 'AD FS relies on on-premises AD. Its availability and authentication rules are now part of the cloud sign-in path.' },
+      { id: 'hy-assertion', from: 'adfs', to: 'browser', label: 'Signed federation assertion', title: 'AD FS issues an assertion for Entra', det: 'protocol', stage: 'issue', desc: 'A signed WS-Federation/SAML assertion travels through the browser. This is not the access token for the Orders API.', kv: { recipient: 'Entra federation endpoint', issuer: 'Contoso AD FS', protocol: 'Federation assertion, not OAuth access token' } },
+      { id: 'hy-trust', from: 'browser', to: 'entra', label: 'Return federation assertion', title: 'Entra validates the federation trust', det: 'policy', stage: 'validate', desc: 'Entra checks the configured issuer, signing key, recipient and lifetime, and maps the subject to the synchronized cloud user.', checks: [{ name: 'Federation signature, issuer, recipient and lifetime', ok: true, kind: 'token' }] },
+    ] : ctx.variant.startsWith('pta') ? [
+      { id: 'hy-password', from: 'user', to: 'entra', label: 'Password at Entra sign-in', title: 'User submits credentials to Entra', det: 'human', stage: [], desc: 'The client app never sees the password. Entra prepares a validation request encrypted for the registered PTA agents.' },
+      { id: 'hy-agent', from: 'entra', to: 'authAgent', label: 'Encrypted validation request', title: 'An agent pulls the request over its outbound channel', det: 'protocol', stage: [], desc: 'The arrow shows the logical request direction. The agent established the outbound connection; no inbound authentication port is exposed.' },
+      { id: 'hy-ad-check', from: 'authAgent', to: 'dc', label: 'Validate password and AD state', title: 'Check the user in on-premises AD', det: 'protocol', stage: [], desc: 'AD checks the password and current account restrictions, including disabled or locked accounts and logon hours. The agent does not issue tokens.' },
+      ctx.variant === 'pta-outage'
+        ? { id: 'hy-outage', from: 'authAgent', to: 'entra', label: 'Validation unavailable', title: 'No healthy agent can validate the password', det: 'protocol', stage: [], status: 'error', desc: 'A major on-premises outage prevents validation. No new authorization code or API token is issued for this sign-in. Even with PHS already configured as backup, an administrator must switch the sign-in method; there is no automatic fallback.', checks: [{ name: 'Reachable agent and domain controller', ok: false, detail: 'On-premises outage' }], kv: { outcome: 'New password sign-in fails', recovery: 'Manually switch to preconfigured PHS', existingSessions: 'Separate lifetimes and revocation rules; not necessarily ended' } }
+        : { id: 'hy-result', from: 'authAgent', to: 'entra', label: 'Password validation succeeded', title: 'Return only the validation result', det: 'protocol', stage: [], desc: 'Entra knows primary authentication succeeded. It still has to apply cloud MFA, Conditional Access and consent.' },
+    ] : [
+      { id: 'hy-password', from: 'user', to: 'entra', label: 'Password at Entra sign-in', title: 'Entra validates the synchronized password hash', det: 'human', stage: [], desc: 'Password validation happens entirely in the cloud. AD logon hours and lockout state are not checked live by this request. Password and account changes depend on synchronization.' },
+    ];
+    if (ctx.variant === 'pta-outage') return [...provision, ...oauth.slice(0, 2), ...primary];
+    return [
+      ...provision, ...oauth.slice(0, 2), ...primary,
+      { id: 'hy-mfa', from: 'entra', to: 'user', label: 'Cloud MFA', title: 'Entra requires a second factor', det: 'human', stage: [], desc: 'Primary authentication in AD or AD FS is not enough for this policy. The user completes an Entra MFA method. This example does not accept an upstream federated MFA assertion.' },
+      { id: 'hy-policy', from: 'entra', to: 'entra', label: 'CA + consent', title: 'Cloud policy decides whether OAuth may continue', det: 'policy', stage: 'issue', desc: 'The example policy permits this browser after MFA and checks consent for the Orders API. The password validation location does not remove Conditional Access.', checks: [{ name: 'Primary authentication succeeded', ok: true }, { name: 'Entra MFA requirement satisfied', ok: true }, { name: 'Conditional Access and API consent', ok: true }] },
+      ...oauth.slice(4),
+      { id: 'hy-api', from: 'browser', to: 'api', label: 'GET /orders with Entra token', title: 'Call the API, wherever it is hosted', det: 'protocol', stage: [], desc: 'An on-premises API can validate Entra tokens just like an Azure-hosted API. Token acquisition does not establish network reachability.', req: { method: 'GET', url: 'https://orders.contoso.com/api/orders', headers: HDR.bearer('AT') } },
+      { id: 'hy-authorize', from: 'api', to: 'api', label: 'Validate, then authorize', title: 'API checks the cloud token and its own permissions', det: 'resource', stage: ['validate', 'authorize'], desc: 'No AD password, Kerberos ticket or federation assertion reaches this API. It checks the Entra token and authorizes the synchronized user by the cloud object ID.', tok: ['AT'], checks: [{ name: 'Signature, iss, aud, exp', ok: true, kind: 'token' }, { name: 'scp contains access_as_user', ok: true, kind: 'access' }, { name: 'User may read these orders', ok: true, kind: 'access' }] },
+      { id: 'hy-ok', from: 'api', to: 'browser', label: '200 orders', title: 'Orders returned', det: 'protocol', stage: [], desc: 'The same OAuth contract works for all three primary authentication methods.', res: { status: 200, statusText: 'OK', json: { orders: ['PO-10442'] } } },
+    ];
+  },
+});
+
+FLOWS.push({
+  id: 'onprem-app-proxy', group: 'access', icon: '🏢', live: false,
+  title: 'On-premises apps: MFA to Kerberos',
+  subtitle: 'Application Proxy enforces cloud preauthentication; the connector crosses into AD, and the app keeps its own access rules.',
+  actors: ['user', 'browser', 'pc', 'entra', 'appProxy', 'proxyConnector', 'dc', 'legacyWeb'],
+  layout: { user: [110, 80], browser: [110, 260], pc: [110, 430], entra: [390, 80], appProxy: [390, 260], proxyConnector: [650, 260], dc: [650, 80], legacyWeb: [910, 430] },
+  variants: [
+    { id: 'published', label: 'Published URL + MFA', desc: 'Entra preauthentication passes; the connector obtains a Kerberos service ticket for the IWA web app.' },
+    { id: 'denied', label: 'MFA passed, app denies', desc: 'The same valid cloud session and Kerberos ticket reach the app, but the user lacks its local AD group permission.' },
+    { id: 'direct', label: 'Direct intranet path', desc: 'A domain laptop reaches the internal URL directly. AD authenticates it, but this route never invokes Entra Conditional Access.' },
+  ],
+  brief: {
+    what: '<b>Cloud MFA can protect an old web app without teaching it OAuth.</b> Application Proxy redirects the browser to Entra for preauthentication and Conditional Access. Its private network connector uses <b>Kerberos constrained delegation (KCD)</b> to obtain a service ticket as the mapped AD user. The IWA app validates that ticket and applies its own permissions.<br><br><b>The boundary matters:</b> the app receives Kerberos, not the Entra token, MFA claim or <code>acrs</code>. A direct LAN or VPN route to the internal URL can skip this cloud control entirely. <a href="#flow/gsa-private-access">Private Access</a> instead gates network connectivity and lets the device obtain its own tickets; its connector does not delegate.',
+    prereqs: ['Entra ID P1 or P2 and an Application Proxy enterprise app with <b>Entra preauthentication</b>, not passthrough', 'A domain-joined private network connector with outbound cloud connectivity and access to the app and DC', 'An IWA web app, correct HTTP SPN, mapped AD identity and narrowly scoped KCD rights', 'Conditional Access targeting the enterprise app; separate controls for direct internal routes'],
+    antiPattern: 'Assuming cloud MFA covers every path, trusting all services for delegation, or treating successful preauthentication as the app\'s authorization decision. A legacy IWA app cannot implement the OAuth authentication-context step-up simply by reading its Kerberos ticket.',
+    verify: 'Simulation only. Cloud session and federation internals are deliberately schematic, not reusable wire formats. For a real deployment, inspect Entra sign-in logs, connector/KCD diagnostics and the app\'s access logs separately. MFA at Entra is not native MFA for LDAP, SMB, RDP or a direct Windows logon.',
+  },
+  tokens: () => ({}),
+  steps: (ctx) => {
+    const spn = 'HTTP/intranet.contoso.com';
+    const validation = { id: 'op-validate', from: 'legacyWeb', to: 'legacyWeb', label: 'Validate Kerberos ticket', title: 'The app authenticates the AD user', det: 'protocol', stage: 'validate', desc: 'IWA validates a Kerberos service ticket for this app. It does not accept an Entra bearer token and cannot infer that a cloud MFA or device-compliance policy was satisfied.', checks: [{ name: 'Service ticket valid for the app SPN', ok: true, kind: 'token', detail: spn }] };
+    const permission = { id: 'op-authorize', from: 'legacyWeb', to: 'legacyWeb', label: 'Local app permission', title: 'The app makes its own authorization decision', det: 'resource', stage: 'authorize', status: ctx.variant === 'denied' ? 'error' : 'ok', desc: ctx.variant === 'denied' ? 'Authentication succeeded on both sides of the boundary, but the AD user is not in Intranet Readers. Entra MFA never granted that app permission.' : 'The app checks its own Intranet Readers membership and permits this page.', checks: [{ name: 'AD user is in Intranet Readers', ok: ctx.variant !== 'denied', kind: 'access' }] };
+    if (ctx.variant === 'direct') return [
+      { id: 'op-logon', from: 'user', to: 'pc', label: 'Domain logon', title: 'User signs in to a domain laptop', det: 'human', stage: [], desc: 'This example uses a password-based AD logon on the corporate LAN.' },
+      { id: 'op-tgt', from: 'pc', to: 'dc', label: 'AD authentication / TGT', title: 'AD authenticates the user', det: 'protocol', stage: 'issue', desc: 'The DC issues a Kerberos TGT after AD authentication. No Entra MFA policy is involved.' },
+      { id: 'op-internal', from: 'browser', to: 'legacyWeb', label: 'GET internal URL', title: 'Use the directly reachable intranet URL', det: 'protocol', stage: [], desc: 'The LAN route does not traverse Application Proxy or Private Access. VPN connectivity alone would not turn it into an Entra-protected sign-in.', req: { method: 'GET', url: 'https://intranet.contoso.com/' } },
+      { id: 'op-negotiate', from: 'legacyWeb', to: 'browser', label: '401 Negotiate', title: 'The app asks for Windows authentication', det: 'protocol', stage: [], desc: 'The browser asks Windows for the ticket rather than redirecting to Entra.', res: { status: 401, statusText: 'Unauthorized', headers: { 'WWW-Authenticate': 'Negotiate' } } },
+      { id: 'op-service', from: 'pc', to: 'dc', label: 'Service ticket for HTTP SPN', title: 'Windows obtains its own service ticket', det: 'protocol', stage: 'issue', desc: 'The device uses its TGT to request a service ticket. There is no connector delegation.', kv: { SPN: spn, issuer: 'On-premises AD KDC' } },
+      { id: 'op-direct-ticket', from: 'browser', to: 'legacyWeb', label: 'GET + Kerberos ticket', title: 'Browser sends the ticket directly', det: 'protocol', stage: [], desc: 'Schematic IWA exchange: Windows supplies the service ticket to the browser for Negotiate authentication.', req: { method: 'GET', url: 'https://intranet.contoso.com/', headers: { Authorization: 'Negotiate <Kerberos service ticket>' } } },
+      validation, permission,
+      { id: 'op-bypass', from: 'legacyWeb', to: 'browser', label: '200 without cloud MFA', title: 'Access succeeded outside the cloud policy boundary', det: 'protocol', stage: [], desc: 'The app allowed this user under local rules, despite no Entra MFA evaluation. Close or separately protect bypass routes if cloud policy is intended to be mandatory.', res: { status: 200, statusText: 'OK', text: 'Contoso intranet' }, kv: { entraConditionalAccess: 'Not invoked', applicationProxy: 'Not traversed', protection: 'AD authentication and local app permissions only' } },
+    ];
+    return [
+      { id: 'op-external', from: 'browser', to: 'appProxy', label: 'GET published URL', title: 'Open the published web app', det: 'protocol', stage: [], desc: 'The external URL points to Application Proxy, not to an exposed intranet server.', req: { method: 'GET', url: 'https://intranet-contoso.msappproxy.net/' } },
+      { id: 'op-preauth', from: 'appProxy', to: 'entra', label: 'Browser redirect for preauthentication', title: 'Start Entra preauthentication', det: 'protocol', stage: [], desc: 'The arrow shows the logical handoff: the service redirects the browser to Entra. This is a published-app session, not a SPA token sent to the intranet app.' },
+      { id: 'op-mfa', from: 'entra', to: 'user', label: 'Sign-in + MFA', title: 'User satisfies cloud MFA', det: 'human', stage: [], desc: 'This user has already been synchronized from AD. Entra authenticates the user and requires MFA under the enterprise app\'s policy.' },
+      { id: 'op-policy', from: 'entra', to: 'entra', label: 'CA + app assignment', title: 'Entra permits the published-app session', det: 'policy', stage: 'issue', desc: 'Cloud policy and enterprise app assignment pass. These grant entry through the proxy, not membership in the backend app\'s local groups.', checks: [{ name: 'Conditional Access MFA requirement satisfied', ok: true }, { name: 'User assigned to published enterprise app', ok: true }] },
+      { id: 'op-session', from: 'browser', to: 'appProxy', label: 'Preauthenticated session', title: 'Application Proxy validates the cloud session', det: 'protocol', stage: 'validate', desc: 'Schematic session handoff: the service validates Entra preauthentication and identifies the mapped user. No fabricated App Proxy JWT schema is shown.', checks: [{ name: 'Cloud preauthentication token/session valid', ok: true, kind: 'token' }] },
+      { id: 'op-relay', from: 'appProxy', to: 'proxyConnector', label: 'Request + mapped user + SPN', title: 'Connector pulls the request over the secure channel', det: 'protocol', stage: [], desc: 'The connector opened the outbound channel. It receives the request and identity information needed for KCD.', kv: { mappedUser: ID.user.upn, SPN: spn } },
+      { id: 'op-kcd', from: 'proxyConnector', to: 'dc', label: 'KCD for mapped AD user', title: 'Connector requests a delegated service ticket', det: 'protocol', stage: [], desc: 'Protocol transition and constrained delegation let the connector request a ticket as the user, but only for the permitted backend service.' },
+      { id: 'op-ticket', from: 'dc', to: 'proxyConnector', label: 'Kerberos service ticket', title: 'AD checks delegation and issues the ticket', det: 'resource', stage: 'issue', desc: 'AD enforces its delegation configuration. This is an AD decision, not another Entra Conditional Access evaluation.', checks: [{ name: 'Delegation permitted to configured HTTP SPN', ok: true, kind: 'access' }, { name: 'Mapped AD user may be delegated', ok: true, kind: 'access' }], kv: { SPN: spn, ticket: '<Kerberos service ticket; not JWT>' } },
+      { id: 'op-backend', from: 'proxyConnector', to: 'legacyWeb', label: 'GET + Kerberos ticket', title: 'Cross from cloud identity to Windows authentication', det: 'protocol', stage: [], desc: 'The app sees an authenticated AD user through IWA, not the cloud session or an MFA claim.', req: { method: 'GET', url: 'https://intranet.contoso.com/', headers: { Authorization: 'Negotiate <Kerberos service ticket>' } } },
+      validation, permission,
+      { id: 'op-app-result', from: 'legacyWeb', to: 'proxyConnector', label: ctx.variant === 'denied' ? '403 app denied' : '200 intranet', title: 'Backend returns its own result', det: 'protocol', stage: [], desc: 'The result originates at the app, not at Entra.', res: { status: ctx.variant === 'denied' ? 403 : 200, statusText: ctx.variant === 'denied' ? 'Forbidden' : 'OK', text: ctx.variant === 'denied' ? 'User is not an Intranet Reader' : 'Contoso intranet' } },
+      { id: 'op-return', from: 'proxyConnector', to: 'appProxy', label: 'Relay app response', title: 'Connector returns the response', det: 'protocol', stage: [], desc: 'The connector does not widen permissions or replace an app denial with success.' },
+      { id: 'op-result', from: 'appProxy', to: 'browser', label: ctx.variant === 'denied' ? '403' : '200', title: ctx.variant === 'denied' ? 'MFA passed, access still denied' : 'Published app opened after MFA', det: 'protocol', stage: [], status: ctx.variant === 'denied' ? 'error' : 'ok', desc: 'Cloud preauthentication, AD ticket issuance and backend authorization are three distinct boundaries.', res: { status: ctx.variant === 'denied' ? 403 : 200, statusText: ctx.variant === 'denied' ? 'Forbidden' : 'OK', text: ctx.variant === 'denied' ? 'User is not an Intranet Reader' : 'Contoso intranet' } },
     ];
   },
 });
@@ -3043,7 +3208,8 @@ const REF_ACCESS_A = [
       ['Unknown', 'Entra has never seen the device', 'No', 'Nothing about the device. Only block, or allow with browser restrictions'],
       ['Entra registered', 'A personal device with a work account added', 'Yes, for that account', 'Device filters, and compliance when enrolled in Intune'],
       ['Entra joined', 'A company device signed in with the work account', 'Yes', 'Compliant device, device filters, token protection'],
-      ['Hybrid joined', 'Joined to on-premises AD and registered in Entra', 'Yes', '"Hybrid joined device", compliance'],
+      ['AD domain joined only', 'On-premises domain trust, but no Entra device identity', 'Not from AD join alone', 'AD join does not satisfy cloud hybrid-join or compliant-device requirements. See <a href="#flow/device-sso?variant=ad-only">AD-only device</a>'],
+      ['Hybrid joined', 'Joined to on-premises AD and has completed Entra hybrid join', 'Yes, after successful cloud authentication', '"Hybrid joined device"; compliance only if separately managed and compliant. See <a href="#flow/device-sso?variant=hybrid">hybrid device</a>'],
       ['Compliant', 'Intune marked it healthy: encryption, patches, Defender', 'Depends on the join type', '"Require compliant device"'],
       ['App protection', 'An unmanaged phone with a managed app, such as Outlook with Intune app policies', 'Through the broker app', '"Require app protection policy"'],
     ],
@@ -3069,16 +3235,18 @@ const REF_ACCESS_A = [
 const REF_ACCESS_B = [
   {
     id: 'hybrid', title: 'Hybrid identity',
-    intro: 'Most customers still have Active Directory. How identities and passwords get to Entra decides what keeps working when something breaks.',
+    intro: 'Most customers still have Active Directory. How identities and passwords get to Entra decides what keeps working when something breaks. Walk through <a href="#flow/hybrid-signin">on-premises identity, cloud OAuth</a> and <a href="#flow/onprem-app-proxy">MFA to Kerberos</a>. Synchronization, primary authentication, cloud policy and backend authorization are separate boundaries.',
     cols: ['Option', 'How it works', 'Good for', 'Watch for'],
     rows: [
       ['Entra Connect Sync or Cloud Sync', 'Synchronises users and groups from AD to Entra', 'Every hybrid tenant', 'Cloud Sync is lighter and is where new features land'],
-      ['Password hash sync', 'A hash of the AD password hash goes to Entra. Sign-in happens in the cloud', 'The default. Enables leaked-credential detection', 'Sign-in keeps working even when on-premises is down'],
-      ['Pass-through authentication', 'Entra hands the password to agents on-premises for checking', 'Rules that forbid password hashes in the cloud', 'On-premises outage means no sign-in. Add PHS as a backup'],
+      ['Password hash sync', 'A derived hash of the AD password hash goes to Entra. Password sign-in happens in the cloud', 'Cloud authentication and leaked-credential detection', 'Cloud sign-in can continue during an AD outage using the last synchronized state; AD lockout and logon hours are not checked live'],
+      ['Pass-through authentication', 'An agent retrieves an encrypted request over its outbound connection and checks the password against AD', 'Enforce current AD account restrictions at password sign-in', 'New password sign-ins depend on healthy agents and DCs. PHS backup needs a manual switch; no automatic failover'],
       ['Federation with AD FS', 'Entra redirects to AD FS for sign-in', 'Legacy only', 'Extra infrastructure and a golden SAML risk. Most customers migrate to PHS or staged rollout'],
       ['Cloud Kerberos trust', 'Entra issues partial Kerberos tickets for on-premises resources', 'Windows Hello for Business to on-premises file shares', 'Replaces key and certificate trust for WHfB'],
-      ['Application Proxy', 'Publishes on-premises web apps through Entra. For Windows authentication the connector uses Kerberos constrained delegation to sign in as the user', 'Old intranet web apps behind Conditional Access', 'Web apps only. The connector needs delegation rights in AD'],
+      ['Application Proxy', 'Publishes on-premises web apps through Entra. For Windows authentication the connector uses Kerberos constrained delegation to sign in as the user', 'Old intranet web apps behind Conditional Access with Entra preauthentication', 'Web apps only. Scope delegation rights in AD. Direct internal routes and passthrough preauthentication do not inherit cloud MFA'],
       ['Private Access', 'Tunnels any TCP or UDP app, such as RDP, SMB or a web app, with an Entra token and Conditional Access per app. The device gets its own Kerberos tickets from domain controllers published through the tunnel', 'Replacing the VPN. See the <a href="#flow/gsa-private-access">Private Access tab</a>', 'No delegation on the connector. Publish the domain controllers, and use Windows Hello cloud Kerberos trust for SSO from Entra joined devices'],
+      ['Modern on-premises API or web app', 'Uses normal Entra OAuth/OIDC with cloud token validation, even though the server is on-premises', 'Modernizing without moving the app to Azure', 'Token issuance does not establish connectivity. Ordinary on-premises hosts do not have Azure IMDS; use certificates or supported federation'],
+      ['Direct Kerberos / LDAP / Windows logon', 'AD authenticates and the local resource applies its own rules', 'Domain services on a LAN or a separately protected network path', 'Entra MFA and authentication context are not native properties of these protocols; protect each access path'],
     ],
   },
   {
@@ -3257,7 +3425,12 @@ const GLOSSARY = [
   { term: 'Security Service Edge', re: /\bSecurity Service Edge\b|\bSSE\b/, def: 'Network security delivered from the cloud: secure web gateway, zero trust network access and data protection, close to the user instead of in the datacenter.' },
   { term: 'Traffic forwarding profile', re: /\btraffic forwarding profiles?\b/i, def: 'Tells the Global Secure Access client which traffic to tunnel: Microsoft traffic, Private Access or Internet Access.' },
   { term: 'Security profile', re: /\bsecurity profiles?\b/i, def: 'A bundle of Global Secure Access policies, such as web filtering and threat intelligence, linked to users through a Conditional Access session control.' },
-  { term: 'Private network connector', re: /\bprivate network connectors?\b/i, def: 'An agent next to a private app that connects outbound to Global Secure Access and opens connections to the app, so no inbound port is needed.' },
+  { term: 'Private network connector', re: /\bprivate network connectors?\b/i, def: 'An outbound connector next to a private app. Private Access forwards network traffic; Application Proxy relays web requests and can use KCD for IWA single sign-on.' },
+  { term: 'Password hash synchronization', re: /\bpassword hash sync(?:hronization)?\b|\bPHS\b/i, def: 'Synchronizes a derived AD password hash to Entra so password sign-in can happen in the cloud, without a live domain controller.' },
+  { term: 'Pass-through authentication', re: /\bpass-through authentication\b|\bPTA\b/i, def: 'Entra asks an on-premises agent to check the password and current AD account restrictions. The agent returns a result, not a token.' },
+  { term: 'Kerberos', re: /\bKerberos\b/i, def: 'AD authentication using a ticket-granting ticket and service-specific tickets. These tickets are not OAuth access tokens and do not natively carry Entra MFA policy.' },
+  { term: 'Kerberos constrained delegation', re: /\bKerberos constrained delegation\b|\bKCD\b/i, def: 'Allows a configured service to obtain a Kerberos service ticket as a user, only for permitted backend services. Application Proxy uses it for IWA SSO.' },
+  { term: 'Hybrid joined', re: /\bhybrid[- ]joined?\b/i, def: 'A device joined to on-premises AD that has also completed Entra hybrid device registration. Compliance is a separate management signal.' },
   { term: 'Compliant network', re: /\bcompliant network\b/i, def: 'A Conditional Access location meaning the request came through the tenant\'s own Global Secure Access, not a list of IP ranges.' },
   { term: 'Universal CAE', re: /\bUniversal CAE\b/, def: 'Continuous access evaluation enforced by Global Secure Access, so access to any app ends when the user or device changes state.' },
   { term: 'TLS inspection', re: /\bTLS inspection\b/i, def: 'The edge decrypts HTTPS with a certificate the devices trust, so it can check content, not just host names.' },
@@ -3564,6 +3737,13 @@ const L = {
   riskPolicies: ['Risk-based access policies', 'https://learn.microsoft.com/en-us/entra/id-protection/concept-identity-protection-policies'],
   hybrid: ['Hybrid identity', 'https://learn.microsoft.com/en-us/entra/identity/hybrid/whatis-hybrid-identity'],
   phs: ['Password hash synchronization', 'https://learn.microsoft.com/en-us/entra/identity/hybrid/connect/whatis-phs'],
+  hybridAuth: ['Choose a hybrid authentication method', 'https://learn.microsoft.com/en-us/entra/identity/hybrid/connect/choose-ad-authn'],
+  pta: ['Pass-through authentication', 'https://learn.microsoft.com/en-us/entra/identity/hybrid/connect/how-to-connect-pta'],
+  federatedMfa: ['Protect federated domains and MFA trust', 'https://learn.microsoft.com/en-us/windows-server/identity/ad-fs/deployment/best-practices-securing-ad-fs'],
+  hybridJoin: ['Microsoft Entra hybrid joined devices', 'https://learn.microsoft.com/en-us/entra/identity/devices/concept-hybrid-join'],
+  seamlessSso: ['Seamless SSO and PRT-based SSO', 'https://learn.microsoft.com/en-us/entra/identity/hybrid/connect/how-to-connect-sso'],
+  appProxyKcd: ['Application Proxy single sign-on with KCD', 'https://learn.microsoft.com/en-us/entra/identity/app-proxy/how-to-configure-sso-with-kcd'],
+  appProxyPublish: ['Publish an on-premises web app', 'https://learn.microsoft.com/en-us/entra/identity/app-proxy/application-proxy-add-on-premises-application'],
   b2b: ['B2B collaboration', 'https://learn.microsoft.com/en-us/entra/external-id/what-is-b2b'],
   xtap: ['Cross-tenant access settings', 'https://learn.microsoft.com/en-us/entra/external-id/cross-tenant-access-overview'],
   pim: ['Privileged Identity Management', 'https://learn.microsoft.com/en-us/entra/id-governance/privileged-identity-management/pim-configure'],
@@ -3627,7 +3807,7 @@ const L = {
   studioGsa: ['Global Secure Access for Copilot Studio agents', 'https://learn.microsoft.com/en-us/power-platform/admin/security/secure-web-ai-gateway-agents'],
 };
 const DOC_LINKS = {
-  'auth-code-pkce': [L.authCode, L.spa, L.pkce, L.oauth21],
+  'auth-code-pkce': [L.authCode, L.spa, L.pkce, L.oauth21, L.hybridAuth],
   'web-app': [L.webApp, L.webAppApi, L.authCode, L.certCred, L.clientTypes],
   obo: [L.obo, L.atClaims, L.consent],
   'client-credentials': [L.cc, L.certCred],
@@ -3638,7 +3818,9 @@ const DOC_LINKS = {
   'ca-sim': [L.ca, L.whatIf, L.whatIfApi, L.gsaCompliant],
   'step-up': [L.authContextDev, L.claimsChallenge, L.authStrength],
   aitm: [L.authMethods, L.passkeys, L.authStrength, L.tokenProt, L.gsaCompliant, L.authMethodsApi, L.webauthn],
-  'device-sso': [L.prt, L.devices, L.compliant],
+  'device-sso': [L.prt, L.devices, L.compliant, L.hybridJoin, L.seamlessSso],
+  'hybrid-signin': [L.hybridAuth, L.phs, L.pta, L.federatedMfa, L.authCode, L.ca],
+  'onprem-app-proxy': [L.appProxyPublish, L.appProxyKcd, L.ca, L.authStrength, L.gsaPrivate, L.gsaKerberos],
   'id-protection': [L.idp, L.risks, L.riskPolicies],
   'agent-autonomous': [L.agentIds, L.blueprint, L.agentClaims],
   'agent-obo': [L.agentObo, L.inherit, L.agentClaims],
@@ -3668,7 +3850,7 @@ const DOC_GROUPS = [
   ['Tokens and permissions', [L.atClaims, L.idToken, L.consent, L.claimsChallenge]],
   ['Conditional Access, MFA and devices', [L.ca, L.whatIf, L.whatIfApi, L.authContextDev, L.authStrength, L.authMethods, L.passkeys, L.tokenProt, L.cae, L.prt, L.devices, L.compliant, L.blockFlows]],
   ['Risk and governance', [L.idp, L.risks, L.riskPolicies, L.pim, L.reviews, L.breakGlass]],
-  ['Hybrid and external identities', [L.hybrid, L.phs, L.b2b, L.xtap]],
+  ['Hybrid and external identities', [L.hybrid, L.hybridAuth, L.phs, L.pta, L.federatedMfa, L.hybridJoin, L.seamlessSso, L.appProxyPublish, L.appProxyKcd, L.b2b, L.xtap]],
   ['Microsoft Entra Agent ID', [L.agentIds, L.blueprint, L.agentObo, L.agentUser, L.agentClaims, L.inherit]],
   ['MCP and open standards', [L.mcpAuth, L.mcpSec, L.pkce, L.oauth21, L.rfc9728, L.rfc8414, L.rfc8707, L.rfc7591, L.rfc8693, L.webauthn]],
   ['Work IQ', [L.workIq, L.workIqMcp, L.workIqPerms, L.workIqPolicy, L.workIqEnable, L.agent365Tools]],
@@ -5235,7 +5417,8 @@ function hubLayout() {
   const helpers = archZoneIds('identity', HUB_ORDER.identity).filter((id) => id !== 'entra');
   const ring = HUB_RING.map((z) => ({ zone: z, ids: archZoneIds(z, HUB_ORDER[z]) })).filter((s) => s.ids.length);
   const outerIds = ring.flatMap((s) => s.ids);
-  const IN_RX = 250, IN_RY = 135, ID_RX = 380, ID_RY = 200, M = 20, SEP_X = NODE_W + 12, SEP_Y = NODE_H + 12, GAP = 1;
+  const helperScale = Math.max(1, helpers.length / 6);
+  const IN_RX = 250 * helperScale, IN_RY = 135 * helperScale, ID_RX = IN_RX + 130, ID_RY = IN_RY + 65, M = 20, SEP_X = NODE_W + 12, SEP_Y = NODE_H + 12, GAP = 1;
   // "Box distance" in node sizes: two nodes do not overlap when it is at least 1.
   const dist = (a, b) => Math.max(Math.abs(a[0] - b[0]) / SEP_X, Math.abs(a[1] - b[1]) / SEP_Y);
   // Walk the ellipse clockwise from t0, putting each node at the first angle that is s box units clear of the

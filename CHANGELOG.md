@@ -2,6 +2,13 @@
 
 ### 2026-11-09
 
+**On-premises and hybrid boundaries.**
+- Standard OAuth now includes AD-backed cloud sign-in with PHS, PTA, federation and a PTA outage with no automatic PHS failover.
+- Access, MFA and devices now includes Application Proxy preauthentication and KCD, local app denial after successful MFA, and a direct intranet route outside cloud Conditional Access.
+- Device SSO gains simulated AD-only and hybrid-joined variants, separating Kerberos, PRT, cloud MFA and Intune compliance.
+- Architecture actors, hybrid reference rows, glossary and Learn links explain the boundaries. Modern on-premises hosting keeps the OAuth contract; ordinary on-premises servers do not have Azure IMDS.
+- These additions are simulated only and do not provision AD or change existing live flows.
+
 **Global Secure Access corrections.** A review of how the demonstrator represents Global Secure Access, checked against the Learn pages on the compliant network check, source IP restoration, Kerberos SSO with Private Access and the Graph What If API.
 - **Private Access: Kerberos SSO to a file share.** A new variant follows the documented sequence: per-app token, Private DNS lookup, partial TGT from cloud Kerberos trust, DC locator through the published domain controllers, full TGT and service ticket. The connector relays traffic and never uses delegation. A domain controller and a file share join the architecture page.
 - **Session theft: push MFA + compliant network.** A fourth variant where Conditional Access refuses the phishing kit's relayed sign-in because it didn't come through Contoso's Global Secure Access.

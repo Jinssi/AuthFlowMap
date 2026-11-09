@@ -124,7 +124,8 @@ function hubLayout() {
   const helpers = archZoneIds('identity', HUB_ORDER.identity).filter((id) => id !== 'entra');
   const ring = HUB_RING.map((z) => ({ zone: z, ids: archZoneIds(z, HUB_ORDER[z]) })).filter((s) => s.ids.length);
   const outerIds = ring.flatMap((s) => s.ids);
-  const IN_RX = 250, IN_RY = 135, ID_RX = 380, ID_RY = 200, M = 20, SEP_X = NODE_W + 12, SEP_Y = NODE_H + 12, GAP = 1;
+  const helperScale = Math.max(1, helpers.length / 6);
+  const IN_RX = 250 * helperScale, IN_RY = 135 * helperScale, ID_RX = IN_RX + 130, ID_RY = IN_RY + 65, M = 20, SEP_X = NODE_W + 12, SEP_Y = NODE_H + 12, GAP = 1;
   // "Box distance" in node sizes: two nodes do not overlap when it is at least 1.
   const dist = (a, b) => Math.max(Math.abs(a[0] - b[0]) / SEP_X, Math.abs(a[1] - b[1]) / SEP_Y);
   // Walk the ellipse clockwise from t0, putting each node at the first angle that is s box units clear of the

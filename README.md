@@ -2,6 +2,8 @@
 
 An interactive map of how modern authentication works, one request at a time. It walks through OAuth 2.0 and OIDC, Conditional Access, Microsoft Entra Agent ID, MCP authorization, Work IQ and Foundry IQ, and Global Secure Access with Zero Trust. Each step shows who sends what to whom, what the token contains and who made the decision.
 
+The on-premises perspective covers AD-backed cloud sign-in with PHS, PTA and AD FS, AD-only versus hybrid-joined devices, and Application Proxy bridging cloud MFA to Kerberos. These simulations show which boundary enforces each decision, including direct intranet paths that never invoke cloud Conditional Access.
+
 ![A flow tab mid-run: the Agent ID on-behalf-of exchange, with the diagram, the step list and the decoded agent token](docs/screenshot-flow.png)
 
 ## Getting started
